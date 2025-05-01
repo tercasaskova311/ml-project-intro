@@ -1,3 +1,5 @@
+this is just a template for how we can write read me...
+
 # ML Image Recognition Project
 
 This project aims to develop a neural network model for image recognition. The project includes scripts for feature extraction, similarity search, and submission creation.
