@@ -1,28 +1,57 @@
-Introduction to Machine Learning - Project
+this is just a template for how we can write read me...
 
-Task:
+# ML Image Recognition Project
 
-Given a training dataset of images and an unlabeled test dataset, for each test image, you must retrieve the top-k most similar images from the training set.
+This project aims to develop a neural network model for image recognition. The project includes scripts for feature extraction, similarity search, and submission creation.
 
+## How to Run the Code
 
-Your performance will be measured by how accurately the retrieved images match the class of the reference image ("Top-k Accuracy").
+1. Clone the repository:
 
+    ```bash
+    git clone https://github.com/tercasaskova311/ml-project-intro.git
+    cd ml-project-intro
+    ```
 
- To Submit (one week before the exam date) :
+2. Set up the environment:
 
--Written report (maximum 8 pages, using the CVPR Template)
+    ```bash
+    pip install -r requirements.txt
+    ```
 
--Functional code:
+3. Run the feature extraction script:
 
-        -Public GitHub link
+    ```bash
+    python scripts/feature_extraction.py
+    ```
 
--Code must reproduce reported results
+4. Run the retrieval and similarity search script:
 
--Include documentation & comments
+    ```bash
+    python scripts/retrieval_similarity_search.py
+    ```
 
--COMPETITION (May 28):
+5. Generate the final JSON submission:
 
-        -You’ll be given: Training set with images and classes, images will be organized into folders (but class names will only be revealed during the competition). Test images will have no labels.
+    ```bash
+    python scripts/final_submission.py
+    ```
 
--task: For each image, retrieve the top k most similar images.You submit your results using an API by sending a JSON formatted file for each test image showing the top-k retrieved images.
+## Libraries Used
+
+- PyTorch
+- scikit-learn
+- pandas
+- numpy
+- etc.
+
+## Preparing the Submission JSON
+
+The submission should be a JSON file that includes the following format:
+
+```json
+{
+  "id": "image_1",
+  "prediction": "label_1"
+}
 
