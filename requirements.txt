@@ -1,7 +1,7 @@
 torch
 torchvision
-scikit-learn
+sklearn
 numpy
-pandas
-matplotlib
+matp
+pandaslotlib
 tqdm
