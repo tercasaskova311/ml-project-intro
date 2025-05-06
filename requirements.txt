@@ -3,6 +3,7 @@ torchvision
 sklearn
 numpy
 matp
-pandaslotlib
+pandas
+matplotlib
 tqdm
 os
