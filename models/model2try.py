@@ -2,10 +2,10 @@ import os
 import json
 import torch
 import timm
-import faiss
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
+import faiss 
 
 from PIL import Image
 from torchvision import transforms
@@ -15,6 +15,8 @@ from torchvision.datasets import ImageFolder
 #
 # ── 1. DATA LOADER (with paths) ───────────────────────────────────────────────
 #
+
+
 class PathImageFolder(ImageFolder):
     """Like ImageFolder, but returns (img_tensor, image_path) instead of (img, label)."""
     def __getitem__(self, index):
@@ -26,7 +28,7 @@ class PathImageFolder(ImageFolder):
 
 def get_data(batch_size,
              data_root="data",
-             target_size=(224,224),
+             target_size= (518,518),
              num_workers=2):
     root_dir_train = os.path.join(data_root, 'training')
     root_dir_test  = os.path.join(data_root, 'test')
@@ -123,11 +125,12 @@ if __name__ == "__main__":
     # 1. load data
     train_loader, test_loader = get_data(batch_size=64,
                                          data_root=os.path.join(os.path.dirname(__file__),"..","data"),
+                                         target_size  = (518,518),
                                          num_workers=4)
 
     # 2. build model
     model_resnet = build_model("resnet50", pretrained=True, device=device)
-    model_dino= build_model("dinov2_vits14", pretrained=True, device=device) 
+    model_dino= build_model("vit_small_patch14_dinov2", pretrained=True, device=device) 
 
     # 3. extract gallery (train) features
     feats_r, paths_r = extract_features(train_loader, model_resnet, device)
