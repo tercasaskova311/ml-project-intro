@@ -12,7 +12,9 @@ import numpy as np
 
 # ----- Config -----
 K = 5  # top-k images to retrieve
-DATA_DIR = "data"
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+DATA_DIR = os.path.abspath(DATA_DIR)
+
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ----- Image preprocessing -----
@@ -88,15 +90,17 @@ def main():
         })
 
 
-    output_dir = "submissions"
+    output_dir = os.path.join(os.path.dirname(__file__), "..", "submissions")
+    output_dir = os.path.abspath(output_dir)
+
     os.makedirs(output_dir, exist_ok=True)  # Ensure the folder exists
 
-    output_path = os.path.join(output_dir, "submission_EfficientNet-B0.json")
+    output_path = os.path.join(output_dir, "sub_efficientnet.json")
     
     with open(output_path, "w") as f:
         json.dump(result, f, indent=2)
 
-    print(f"✅ Done! File saved to: {output_path}")
+    print(f"Done! File saved to: {output_path}")
 
 if __name__ == "__main__":
     main()
