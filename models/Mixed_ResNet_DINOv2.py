@@ -180,7 +180,7 @@ if __name__ == "__main__":
                 "filename": qname,
                 "samples":  retrieved
             })
-        out_path = f"submission_{name}.json"
+        out_path = os.path.join("..", "submissions", f"submission_{name}.json")
         with open(out_path, "w") as f:
             json.dump(submission, f, indent=2)
         print(f"Done! Wrote {len(submission)} queries to {out_path}")
