@@ -87,10 +87,16 @@ def main():
             "samples": samples
         })
 
-    with open("submission_EfficientNet-B0.json", "w") as f:
+
+    output_dir = "submissions"
+    os.makedirs(output_dir, exist_ok=True)  # Ensure the folder exists
+
+    output_path = os.path.join(output_dir, "submission_EfficientNet-B0.json")
+    
+    with open(output_path, "w") as f:
         json.dump(result, f, indent=2)
 
-    print("✅ Done! File 'submission.json' ready!!!!!")
+    print(f"✅ Done! File saved to: {output_path}")
 
 if __name__ == "__main__":
     main()
