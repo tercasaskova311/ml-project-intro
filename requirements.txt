@@ -8,3 +8,6 @@ matplotlib
 tqdm
 os
 json
+PIL
+tqdm
+timm
