@@ -1,4 +1,5 @@
 #on terminal: python src/visualize_submission.py
+#then insert name of file to plot
 
 import os
 import json
@@ -6,10 +7,14 @@ from PIL import Image
 import matplotlib.pyplot as plt
 
 # Config
-submission_path = "submissions/submission_dino.json"  # path to the JSON file
+submission_name = input("Enter the submission filename (e.g., submission_resnet.json): ").strip()
+if not submission_name.endswith('.json'):
+    submission_name += '.json'  
+
+submission_path = os.path.join("submissions", submission_name)  # path to the JSON file
 query_dir = "data/test/query"                         # path to query images
-gallery_dir = "data/training"                         # path to training images
-max_queries_to_show = 5                               # how many query images to visualize
+gallery_dir = "data/test/gallery"                         # path to training images
+max_queries_to_show = 20                               # how many query images to visualize
 
 # Load JSON
 with open(submission_path, 'r') as f:
