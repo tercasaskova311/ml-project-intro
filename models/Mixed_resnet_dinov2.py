@@ -11,6 +11,8 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
 
+topk=10  # Number of top results to retrieve
+
 #
 # ── 1. FLAT DATASET ───────────────────────────────────────────────
 #
@@ -109,7 +111,7 @@ def extract_features(dataloader, model, device="cuda"):
 #
 def build_index(vectors): return vectors.astype('float32')
 
-def search(index_vectors, query_vecs, topk=10):
+def search(index_vectors, query_vecs, topk):
     q, g = query_vecs.astype('float32'), index_vectors.astype('float32')
     sim = np.dot(q, g.T)
     I = np.argsort(-sim, axis=1)[:, :topk]
@@ -147,8 +149,8 @@ if __name__ == "__main__":
     query_d, _           = extract_features(query_loader, model_dino, device)
 
     # Search
-    D_r, I_r = search(index_r, query_r, topk=10)
-    D_d, I_d = search(index_d, query_d, topk=10)
+    D_r, I_r = search(index_r, query_r, topk)
+    D_d, I_d = search(index_d, query_d, topk)
 
     # Write submission files
     for name, I, paths in [
