@@ -121,7 +121,7 @@ if __name__ == '__main__':
     # Save output JSON to the submissions folder
     output_dir = os.path.join(project_root, 'submissions')
     os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, 'submission_GoogLeNet.json')
+    output_file = os.path.join(output_dir, 'sub_googlenet.json')
 
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=2)
