@@ -2,14 +2,14 @@ torch
 torchvision
 scikit-learn
 numpy
-matp
-pandas
+pandas #do we actaully use it?
 matplotlib
 tqdm
-os
-json
-PIL
-tqdm
-timm
+timm 
 kaggle
 transformers
+Pillow
+clip-by-openai
+
+
+# os, json -->  These are part of the Python standard library and should not be included in requirements.txt.
