@@ -94,14 +94,14 @@ class GeM(nn.Module):
 #
 # ── 5. MODEL BUILDER ─────────────────────────────────────────────
 #
-def build_model(backbone_name="resnet50", pretrained=True, device):
+def build_model(backbone_name="resnet50", pretrained=True, device=device):
     model = timm.create_model(backbone_name, pretrained=pretrained, num_classes=0, global_pool="")
     model.gem_pool = GeM()
     model.flatten  = nn.Flatten(1)
     return model.to(device).eval()
 
 @torch.no_grad()
-def extract_features(dataloader, model, device):
+def extract_features(dataloader, model, device=device):
     features, paths = [], []
     for imgs, img_paths in dataloader:
         imgs = imgs.to(device)
