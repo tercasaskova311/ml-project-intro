@@ -12,7 +12,7 @@ import numpy as np
 
 # ----- Config -----
 K = 10  # top-k images to retrieve
-FINE_TUNE = True  # Toggle this to enable/disable fine-tuning
+FINE_TUNE = False  # Toggle this to enable/disable fine-tuning
 USE_GEM = False    # Toggle this to switch between GAP and GeM
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -80,7 +80,7 @@ def load_model_GEM():
 
 # ----- Fine-tuning (Optional) -----
 def finetune_model(model, dataloader, epochs=1, lr=1e-4):
-    print("🔧 Fine-tuning model on training data...")
+    print("Fine-tuning model on training data...")
     model.train()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
