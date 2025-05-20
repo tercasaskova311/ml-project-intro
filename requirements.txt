@@ -12,3 +12,4 @@ PIL
 tqdm
 timm
 kaggle
+transformers
