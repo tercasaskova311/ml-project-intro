@@ -1,3 +1,6 @@
 .DS_Store
 .venv/
 
+# Ignore data and images
+data/
+!data/README.md  # optional placeholder
