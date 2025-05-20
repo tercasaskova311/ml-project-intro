@@ -11,3 +11,4 @@ json
 PIL
 tqdm
 timm
+transformers
