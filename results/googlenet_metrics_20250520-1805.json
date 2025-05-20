@@ -1,0 +1,10 @@
+{
+  "model_name": "googlenet",
+  "run_id": "20250520-1805",
+  "top_k": 5,
+  "top_k_accuracy": 0.5,
+  "batch_size": 16,
+  "is_finetuned": false,
+  "num_classes": null,
+  "runtime_seconds": 0.99
+}

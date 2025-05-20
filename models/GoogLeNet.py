@@ -160,11 +160,56 @@ def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k):
         })
     return results
 
+def calculate_top_k_accuracy(results):
+    def extract_class(filename):
+        return filename.split("_")[0]  # Adatta alla tua convenzione (es: class42_img12.jpg)
+
+    correct = 0
+    total = len(results)
+
+    for item in results:
+        query_class = extract_class(item["filename"])
+        retrieved_classes = [extract_class(fn) for fn in item["samples"]]
+        if query_class in retrieved_classes:
+            correct += 1
+
+    acc = correct / total
+    print(f"🎯 Top-{k} Accuracy: {acc:.4f}")
+    return acc
+
+
+def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_classes=None, runtime=None):
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+
+    metrics = {
+        "model_name": model_name,
+        "run_id": timestamp,
+        "top_k": k,
+        "top_k_accuracy": round(top_k_accuracy, 4),
+        "batch_size": batch_size,
+        "is_finetuned": is_finetuned,
+        "num_classes": num_classes,
+        "runtime_seconds": round(runtime, 2) if runtime else None
+    }
+
+    out_path = os.path.join("results", f"{model_name}_metrics_{timestamp}.json")
+    os.makedirs("results", exist_ok=True)
+
+    with open(out_path, "w") as f:
+        json.dump(metrics, f, indent=2)
+
+    print(f"📊 Metrics saved to: {out_path}")
+
+
 # ------------------------------
 # 7. Main script execution
 # ------------------------------
 if __name__ == '__main__':
     
+    import time
+    start_time = time.time()
+
     # Load datasets
     query_dataset = ImagePathDataset(query_folder, transform=transform)
     gallery_dataset = ImagePathDataset(gallery_folder, transform=transform)
@@ -204,5 +249,24 @@ if __name__ == '__main__':
 
     with open(output_file, 'w') as f:
         json.dump(results, f, indent=2)
+    
+    total_time = time.time() - start_time
+    print(f"⏱️ Total runtime: {total_time:.2f} seconds")
 
     print(f"✅ Submission saved to: {output_file}")
+
+    print("[📈] Calculating Top-K accuracy...")
+    topk_acc = calculate_top_k_accuracy(results)
+
+    total_time = time.time() - start_time
+    print(f"⏱ Total runtime: {total_time:.2f} seconds")
+
+    num_classes = len(train_dataset.classes) if FINE_TUNE else None
+    save_metrics_json(
+        model_name="googlenet",
+        top_k_accuracy=topk_acc,
+        batch_size=batch_size,
+        is_finetuned=FINE_TUNE,
+        num_classes=num_classes,
+        runtime=total_time
+    )
