@@ -7,11 +7,20 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from tqdm import tqdm
 import json
+from torchvision.datasets import ImageFolder
+import torch.optim as optim
 
 #CONFIG
-k=10
-batch_size=32
-
+k=5
+batch_size= 16
+image_size = (224, 224)
+normalize_mean = [0.485, 0.456, 0.406]
+normalize_std = [0.229, 0.224, 0.225]
+FINE_TUNE = False  # Set to False to skip training
+TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
+epochs = 5
+learning_rate = 1e-4
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # ------------------------------
 # 1. Define project paths
@@ -52,16 +61,16 @@ class ImagePathDataset(Dataset):
 # 3. Image transform
 # ------------------------------
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize(image_size),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406],  # ImageNet mean
-                         std=[0.229, 0.224, 0.225])   # ImageNet std
+    transforms.Normalize(mean=normalize_mean,  # ImageNet mean
+                         std=normalize_std)   # ImageNet std
 ])
 
 # ------------------------------
 # 4. Build GoogLeNet feature extractor
 # ------------------------------
-def build_googlenet_extractor(device='cuda'):
+def build_googlenet_extractor(device):
     weights = torchvision.models.GoogLeNet_Weights.DEFAULT
     model = torchvision.models.googlenet(weights=weights, aux_logits=True)
     model.aux1 = torch.nn.Identity()
@@ -70,10 +79,61 @@ def build_googlenet_extractor(device='cuda'):
     return model.to(device).eval()
 
 # ------------------------------
+# 4.5 . FINE TUNING
+# ------------------------------
+
+def fine_tune_model(model, train_loader, device, num_classes, train_last_layer_only=True, epochs=epochs, learning_rate=learning_rate):
+    print(f"[FT] Starting fine-tuning for {epochs} epochs...")
+    
+    model.train()
+
+    if train_last_layer_only:
+        # Replace classifier with trainable one
+        model.fc = torch.nn.Linear(model.fc.in_features, num_classes).to(device)
+        for param in model.parameters():
+            param.requires_grad = False
+        for param in model.fc.parameters():
+            param.requires_grad = True
+    else:
+        # Fine-tune whole model
+        model.fc = torch.nn.Linear(model.fc.in_features, num_classes).to(device)
+        for param in model.parameters():
+            param.requires_grad = True
+
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), learning_rate)
+    criterion = torch.nn.CrossEntropyLoss()
+
+    for epoch in range(epochs):
+        running_loss = 0.0
+        correct = 0
+        total = 0
+        for inputs, labels in train_loader:
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = criterion(outputs.logits, labels)
+            loss.backward()
+            optimizer.step()
+
+            running_loss += loss.item()
+            _, predicted = outputs.logits.max(1)
+            total += labels.size(0)
+            correct += predicted.eq(labels).sum().item()
+
+        acc = 100. * correct / total
+        print(f"[FT] Epoch {epoch+1}: Loss={running_loss:.3f}, Acc={acc:.2f}%")
+
+    print("[FT] Fine-tuning complete.")
+    return model.eval()
+
+
+
+# ------------------------------
 # 5. Extract image embeddings
 # ------------------------------
 @torch.no_grad()
-def extract_embeddings(loader, model, device='cuda'):
+def extract_embeddings(loader, model, device):
     embeddings = []
     for images, _ in tqdm(loader, desc="Extracting embeddings"):
         images = images.to(device)
@@ -104,8 +164,7 @@ def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k):
 # 7. Main script execution
 # ------------------------------
 if __name__ == '__main__':
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
+    
     # Load datasets
     query_dataset = ImagePathDataset(query_folder, transform=transform)
     gallery_dataset = ImagePathDataset(gallery_folder, transform=transform)
@@ -113,8 +172,23 @@ if __name__ == '__main__':
     query_loader = DataLoader(query_dataset, batch_size, shuffle=False)
     gallery_loader = DataLoader(gallery_dataset, batch_size, shuffle=False)
 
-    # Build the GoogLeNet feature extractor
-    model = build_googlenet_extractor(device)
+    # Build the GoogLeNet feature extractor WITH AND WITHOUT FINETUNING
+    if FINE_TUNE: 
+        print("[FT] Loading training data...")
+        train_dir = os.path.join(project_root, 'data', 'training')
+        train_dataset = ImageFolder(train_dir, transform=transform)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+        # Rebuild model for training
+        model = torchvision.models.googlenet(weights=torchvision.models.GoogLeNet_Weights.DEFAULT, aux_logits=True)
+        model.aux1 = torch.nn.Identity()
+        model.aux2 = torch.nn.Identity()
+
+        model = fine_tune_model(model, train_loader, device, num_classes=len(train_dataset.classes),
+                                train_last_layer_only=TRAIN_LAST_LAYER_ONLY, epochs=epochs, learning_rate=learning_rate)
+    else:
+        model = build_googlenet_extractor(device)
+
 
     # Extract features
     query_embs = extract_embeddings(query_loader, model, device)
@@ -123,7 +197,7 @@ if __name__ == '__main__':
     # Perform retrieval
     results = retrieve_topk(query_embs, gallery_embs, query_dataset.paths, gallery_dataset.paths, k)
 
-    # Save output JSON to the submissions folder
+    # Save output JSON to the submissions folde
     output_dir = os.path.join(project_root, 'submissions')
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, 'sub_googlenet.json')
