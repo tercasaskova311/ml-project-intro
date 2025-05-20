@@ -9,6 +9,7 @@ from PIL import Image
 from tqdm import tqdm
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
+import time
 
 # ----- Config -----
 K = 10  # top-k images to retrieve
@@ -141,8 +142,30 @@ def extract_features(model, dataloader):
     return features, filenames
 
 
+def calculate_top_k_accuracy(query_feats, gallery_feats, query_names, gallery_names, k=10):
+    correct = 0
+    total = len(query_names)
+
+    def extract_class(name):
+        return name.split("_")[0]  # modify as needed
+
+    sim_matrix = cosine_similarity(query_feats, gallery_feats)
+    for i, qname in enumerate(query_names):
+        qclass = extract_class(qname)
+        topk_idx = np.argsort(sim_matrix[i])[::-1][:k]
+        retrieved = [extract_class(gallery_names[j]) for j in topk_idx]
+        if qclass in retrieved:
+            correct += 1
+
+    acc = correct / total
+    print(f"Top-{k} Accuracy: {acc:.4f}")
+    return acc
+
+
 # ----- Main Logic -----
 def main():
+
+    start_time = time.time()
     print("[1] Loading EfficientNet model...")
     model = load_model_GEM() if USE_GEM else load_model()
 
@@ -183,6 +206,48 @@ def main():
         json.dump(result, f, indent=2)
 
     print(f"Done! File saved to: {output_path}")
+
+    print("[5] Evaluating Top-K accuracy...")
+    topk_acc = calculate_top_k_accuracy(query_feats, gallery_feats, query_names, gallery_names, k=K)
+
+    total_time = time.time() - start_time
+    print(f"Total time taken: {total_time:.2f} seconds")
+
+    print("[6] Saving metrics...")
+    num_classes = len(train_dataset.classes) if FINE_TUNE else None
+    save_metrics_json(
+        model_name="efficientnet_b0",
+        top_k_accuracy=topk_acc,
+        batch_size=batch_size,
+        is_finetuned=FINE_TUNE,
+        num_classes=num_classes,
+        runtime=total_time
+    )
+
+
+def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_classes=None, runtime=None):
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+
+    metrics = {
+        "model_name": model_name,
+        "run_id": timestamp,
+        "top_k": K,
+        "top_k_accuracy": round(top_k_accuracy, 4),
+        "batch_size": batch_size,
+        "is_finetuned": is_finetuned,
+        "num_classes": num_classes,
+        "runtime_seconds": round(runtime, 2) if runtime else None
+    }
+
+    out_path = os.path.join("results", f"{model_name}_metrics_{timestamp}.json")
+    os.makedirs("results", exist_ok=True)
+
+    with open(out_path, "w") as f:
+        json.dump(metrics, f, indent=2)
+    
+    print(f"📊 Metrics saved to: {out_path}")
+
 
 if __name__ == "__main__":
     main()
