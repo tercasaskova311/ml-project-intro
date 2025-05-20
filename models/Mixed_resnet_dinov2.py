@@ -11,7 +11,17 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import ImageFolder
 
-topk=10  # Number of top results to retrieve
+k=10  # Number of top results to retrieve
+num_workers = 2  # Number of workers for data loading
+batch_size = 8 # Batch size for data loading
+image_size = (224, 224)
+normalize_mean = [0.485, 0.456, 0.406]
+normalize_std = [0.229, 0.224, 0.225]
+# FINE_TUNE = False  # Set to False to skip training
+# TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
+# epochs = 5
+# learning_rate = 1e-4
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 #
 # ── 1. FLAT DATASET ───────────────────────────────────────────────
@@ -46,9 +56,9 @@ def load_dataset_auto(root, transform):
 #
 # ── 3. DATA LOADER ────────────────────────────────────────────────
 #
-def get_data_loaders(batch_size, data_root="data", target_size=(518,518), num_workers=2):
-    mean = [0.485, 0.456, 0.406]
-    std  = [0.229, 0.224, 0.225]
+def get_data_loaders(batch_size, data_root="data", target_size=(518,518), num_workers=num_workers):
+    mean = normalize_mean
+    std  = normalize_std
 
     transform = transforms.Compose([
         transforms.Resize(target_size),
@@ -84,14 +94,14 @@ class GeM(nn.Module):
 #
 # ── 5. MODEL BUILDER ─────────────────────────────────────────────
 #
-def build_model(backbone_name="resnet50", pretrained=True, device="cuda"):
+def build_model(backbone_name="resnet50", pretrained=True, device=device):
     model = timm.create_model(backbone_name, pretrained=pretrained, num_classes=0, global_pool="")
     model.gem_pool = GeM()
     model.flatten  = nn.Flatten(1)
     return model.to(device).eval()
 
 @torch.no_grad()
-def extract_features(dataloader, model, device="cuda"):
+def extract_features(dataloader, model, device=device):
     features, paths = [], []
     for imgs, img_paths in dataloader:
         imgs = imgs.to(device)
@@ -111,10 +121,10 @@ def extract_features(dataloader, model, device="cuda"):
 #
 def build_index(vectors): return vectors.astype('float32')
 
-def search(index_vectors, query_vecs, topk):
+def search(index_vectors, query_vecs, k):
     q, g = query_vecs.astype('float32'), index_vectors.astype('float32')
     sim = np.dot(q, g.T)
-    I = np.argsort(-sim, axis=1)[:, :topk]
+    I = np.argsort(-sim, axis=1)[:, :k]
     D = sim[np.arange(sim.shape[0])[:, None], I]
     return D, I
 
@@ -122,15 +132,14 @@ def search(index_vectors, query_vecs, topk):
 # ── 7. MAIN EXECUTION ─────────────────────────────────────────────
 #
 if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     data_root = os.path.join(os.path.dirname(__file__), "..", "data")
 
     # Load data
     train_loader, query_loader, gallery_loader = get_data_loaders(
-        batch_size=64,
+        batch_size=batch_size,
         data_root=data_root,
         target_size=(518,518),
-        num_workers=4
+        num_workers=num_workers
     )
 
     # Build models
@@ -149,8 +158,8 @@ if __name__ == "__main__":
     query_d, _           = extract_features(query_loader, model_dino, device)
 
     # Search
-    D_r, I_r = search(index_r, query_r, topk)
-    D_d, I_d = search(index_d, query_d, topk)
+    D_r, I_r = search(index_r, query_r, k)
+    D_d, I_d = search(index_d, query_d, k)
 
     # Write submission files
     for name, I, paths in [
