@@ -14,6 +14,10 @@ import numpy as np
 K = 10  # top-k images to retrieve
 FINE_TUNE = False  # Toggle this to enable/disable fine-tuning
 USE_GEM = False    # Toggle this to switch between GAP and GeM
+batch_size=32
+epochs=1
+
+
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -79,7 +83,7 @@ def load_model_GEM():
     return model
 
 # ----- Fine-tuning (Optional) -----
-def finetune_model(model, dataloader, epochs=1, lr=1e-4):
+def finetune_model(model, dataloader, epochs, lr=1e-4):
     print("Fine-tuning model on training data...")
     model.train()
 
@@ -145,19 +149,19 @@ def main():
     if FINE_TUNE:
         print("[1.5] Fine-tuning is ENABLED.")
         train_dataset = ImageFolder(os.path.join(DATA_DIR, "training"), transform)
-        train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+        train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
         finetune_model(model, train_loader)
     else:
         print("[1.5] Fine-tuning is DISABLED.")
 
     print("[2] Extracting features from gallery...")
     gallery_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/gallery"), transform)
-    gallery_loader = DataLoader(gallery_dataset, batch_size=32)
+    gallery_loader = DataLoader(gallery_dataset, batch_size)
     gallery_feats, gallery_names = extract_features(model, gallery_loader)
 
     print("[3] Extracting features from query...")
     query_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/query"), transform)
-    query_loader = DataLoader(query_dataset, batch_size=32)
+    query_loader = DataLoader(query_dataset, batch_size)
     query_feats, query_names = extract_features(model, query_loader)
 
     print("[4] Calculating similarity and saving JSON...")
