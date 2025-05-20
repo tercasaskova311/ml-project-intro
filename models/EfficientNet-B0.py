@@ -11,7 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 
 # ----- Config -----
-K = 5  # top-k images to retrieve
+K = 10  # top-k images to retrieve
 FINE_TUNE = True  # Toggle this to enable/disable fine-tuning
 USE_GEM = False    # Toggle this to switch between GAP and GeM
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
