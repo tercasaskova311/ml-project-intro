@@ -79,7 +79,7 @@ def extract_embeddings(loader, model, device='cuda'):
 # ------------------------------
 # 6. Compute top-k similar images
 # ------------------------------
-def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k=5):
+def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k=10):
     query_embs = F.normalize(query_embs, dim=1)
     gallery_embs = F.normalize(gallery_embs, dim=1)
     sim_matrix = query_embs @ gallery_embs.T  # Cosine similarity

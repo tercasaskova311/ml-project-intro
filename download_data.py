@@ -62,10 +62,42 @@ def organize_dataset_by_percentage(dest_folder, train_pct=0.75, query_pct=0.005,
     # Auto-detect if the dataset was extracted into a single subfolder (common Kaggle case)
     raw_folders = [d for d in base_data_dir.iterdir() if d.is_dir() and d.name not in ["training", "test"]]
 
+    raw_folders = [d for d in base_data_dir.iterdir() if d.is_dir() and d.name not in ["training", "test"]]
+
+    if len(raw_folders) == 1:
+        first_level = raw_folders[0]
+        first_level_subdirs = list(first_level.iterdir())
+    # Se dentro la prima cartella c'è solo una cartella e questa contiene sottocartelle (le classi)
+        if len(first_level_subdirs) == 1 and all(p.is_dir() for p in first_level_subdirs[0].iterdir()):
+        # Scendi due livelli
+            extracted_dirs = list(first_level_subdirs[0].iterdir())
+    # Se dentro la prima cartella ci sono direttamente le classi
+        elif all(p.is_dir() for p in first_level_subdirs):
+            extracted_dirs = first_level_subdirs
+        else:
+            extracted_dirs = raw_folders
+    else:
+        extracted_dirs = raw_folders
+
+
+     # DEBUG PRINT
+    print("\nDEBUG: Found these folders inside data/:")
+    for f in raw_folders:
+        try:
+            num_subfolders = len(list(f.iterdir()))
+        except Exception:
+            num_subfolders = "unknown"
+        print(f"  - {f} (contains {num_subfolders} items)")
+    
     if len(raw_folders) == 1 and all(p.is_dir() for p in raw_folders[0].iterdir()):
         extracted_dirs = list(raw_folders[0].iterdir())  # Go one level deeper
     else:
         extracted_dirs = raw_folders
+
+    # DEBUG PRINT
+    print("\nDEBUG: Using these class folders for images:")
+    for d in extracted_dirs:
+        print(f"  - {d}")
 
     all_images = []
     for class_dir in extracted_dirs:
@@ -115,5 +147,5 @@ if __name__ == "__main__":
     parser.add_argument("--out_dir", default="data", help="Output folder (default: data)")
     args = parser.parse_args()
 
-    download_and_extract(args.dataset, args.out_dir)
+    # download_and_extract(args.dataset, args.out_dir)
     organize_dataset_by_percentage(args.out_dir)
