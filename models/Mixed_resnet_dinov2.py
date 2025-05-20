@@ -154,8 +154,8 @@ if __name__ == "__main__":
 
     # Write submission files
     for name, I, paths in [
-        ("resnet", I_r, paths_r),
-        ("dino",   I_d, paths_d),
+        ("resnet_mix", I_r, paths_r),
+        ("dino_mix",   I_d, paths_d),
     ]:
         submission = []
         for qi, qpath in enumerate(query_paths):

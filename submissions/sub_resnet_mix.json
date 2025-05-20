@@ -1,0 +1,24 @@
+[
+  {
+    "filename": "4597118805213184.jpg",
+    "samples": [
+      "painting_085_000045.jpg",
+      "painting_085_000084.jpg",
+      "painting_085_000118.jpg",
+      "n01855672_1037.jpg",
+      "n01855672_4197.jpg",
+      "n01855672_4393.jpg"
+    ]
+  },
+  {
+    "filename": "n01855672_10973.jpg",
+    "samples": [
+      "n01855672_4197.jpg",
+      "n01855672_4393.jpg",
+      "n01855672_1037.jpg",
+      "painting_085_000118.jpg",
+      "painting_085_000084.jpg",
+      "painting_085_000045.jpg"
+    ]
+  }
+]
