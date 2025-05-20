@@ -8,6 +8,11 @@ from PIL import Image
 from tqdm import tqdm
 import json
 
+#CONFIG
+k=10
+batch_size=32
+
+
 # ------------------------------
 # 1. Define project paths
 # ------------------------------
@@ -79,7 +84,7 @@ def extract_embeddings(loader, model, device='cuda'):
 # ------------------------------
 # 6. Compute top-k similar images
 # ------------------------------
-def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k=10):
+def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k):
     query_embs = F.normalize(query_embs, dim=1)
     gallery_embs = F.normalize(gallery_embs, dim=1)
     sim_matrix = query_embs @ gallery_embs.T  # Cosine similarity
@@ -105,8 +110,8 @@ if __name__ == '__main__':
     query_dataset = ImagePathDataset(query_folder, transform=transform)
     gallery_dataset = ImagePathDataset(gallery_folder, transform=transform)
 
-    query_loader = DataLoader(query_dataset, batch_size=32, shuffle=False)
-    gallery_loader = DataLoader(gallery_dataset, batch_size=32, shuffle=False)
+    query_loader = DataLoader(query_dataset, batch_size, shuffle=False)
+    gallery_loader = DataLoader(gallery_dataset, batch_size, shuffle=False)
 
     # Build the GoogLeNet feature extractor
     model = build_googlenet_extractor(device)
@@ -116,7 +121,7 @@ if __name__ == '__main__':
     gallery_embs = extract_embeddings(gallery_loader, model, device)
 
     # Perform retrieval
-    results = retrieve_topk(query_embs, gallery_embs, query_dataset.paths, gallery_dataset.paths, k=5)
+    results = retrieve_topk(query_embs, gallery_embs, query_dataset.paths, gallery_dataset.paths, k)
 
     # Save output JSON to the submissions folder
     output_dir = os.path.join(project_root, 'submissions')
