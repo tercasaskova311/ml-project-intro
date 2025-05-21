@@ -9,7 +9,8 @@ timm==0.6.13
 kaggle==1.5.16
 transformers==4.32.0
 Pillow==9.5.0
-clip-by-openai==1.0.0
+clip-by-openai==1.1
+
 
 
 
