@@ -1,15 +1,16 @@
-torch==2.2.2
-torchvision==0.17.2
+torch==1.7.1
+torchvision==0.8.2
+timm==0.4.12
+clip-by-openai
 scikit-learn==1.2.2
 numpy==1.24.4
-pandas==1.5.3       # Keep if you use it, else remove
+pandas==1.5.3
 matplotlib==3.7.1
 tqdm==4.66.1
-timm==0.6.13
 kaggle==1.5.16
 transformers==4.32.0
 Pillow==9.5.0
-clip-by-openai==1.1
+
 
 
 
