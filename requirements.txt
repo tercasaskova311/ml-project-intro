@@ -1,15 +1,16 @@
-torch
-torchvision
-scikit-learn
-numpy
-pandas #do we actaully use it?
-matplotlib
-tqdm
-timm 
-kaggle
-transformers
-Pillow
-clip-by-openai
+torch==1.13.1
+torchvision==0.14.1
+scikit-learn==1.2.1
+numpy==1.24.1
+pandas==1.5.2
+matplotlib==3.6.2
+tqdm==4.64.1
+timm==0.6.7
+kaggle==1.5.12
+transformers==4.26.1
+Pillow==9.3.0
+clip-by-openai==1.0.0
+
 
 
 # os, json -->  These are part of the Python standard library and should not be included in requirements.txt.
