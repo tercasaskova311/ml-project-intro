@@ -151,12 +151,16 @@ def main(k=K):
     # Save metrics
     runtime = time.time() - start_time
     save_metrics_json(
-        model_name="dinov2-base",
-        top_k_accuracy=top_k_acc,
-        batch_size=BATCH_SIZE,
-        is_finetuned=False,
-        runtime=runtime
-    )
+    model_name="dinov2-base",
+    top_k_accuracy=top_k_acc,
+    batch_size=BATCH_SIZE,
+    is_finetuned=False,
+    runtime=runtime,
+    loss_function="None",  # No loss function used
+    num_epochs=None,
+    final_loss=None
+)
+
 
 if __name__ == "__main__":
     main()

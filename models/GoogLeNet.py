@@ -16,7 +16,7 @@ batch_size= 16
 image_size = (224, 224)
 normalize_mean = [0.485, 0.456, 0.406]
 normalize_std = [0.229, 0.224, 0.225]
-FINE_TUNE = False  # Set to False to skip training
+FINE_TUNE = True  # Set to False to skip training
 TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
 epochs = 5
 learning_rate = 1e-4
@@ -88,20 +88,20 @@ def fine_tune_model(model, train_loader, device, num_classes, train_last_layer_o
     model.train()
 
     if train_last_layer_only:
-        # Replace classifier with trainable one
         model.fc = torch.nn.Linear(model.fc.in_features, num_classes).to(device)
         for param in model.parameters():
             param.requires_grad = False
         for param in model.fc.parameters():
             param.requires_grad = True
     else:
-        # Fine-tune whole model
         model.fc = torch.nn.Linear(model.fc.in_features, num_classes).to(device)
         for param in model.parameters():
             param.requires_grad = True
 
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), learning_rate)
     criterion = torch.nn.CrossEntropyLoss()
+
+    final_loss = None
 
     for epoch in range(epochs):
         running_loss = 0.0
@@ -122,10 +122,12 @@ def fine_tune_model(model, train_loader, device, num_classes, train_last_layer_o
             correct += predicted.eq(labels).sum().item()
 
         acc = 100. * correct / total
-        print(f"[FT] Epoch {epoch+1}: Loss={running_loss:.3f}, Acc={acc:.2f}%")
+        final_loss = running_loss / len(train_loader)
+        print(f"[FT] Epoch {epoch+1}: Loss={final_loss:.3f}, Acc={acc:.2f}%")
 
     print("[FT] Fine-tuning complete.")
-    return model.eval()
+    return model.eval(), final_loss
+
 
 
 
@@ -245,10 +247,11 @@ if __name__ == '__main__':
         model.aux1 = torch.nn.Identity()
         model.aux2 = torch.nn.Identity()
 
-        model = fine_tune_model(model, train_loader, device, num_classes=len(train_dataset.classes),
-                                train_last_layer_only=TRAIN_LAST_LAYER_ONLY, epochs=epochs, learning_rate=learning_rate)
+        model, final_loss = fine_tune_model(model, train_loader, device, num_classes=len(train_dataset.classes), train_last_layer_only=TRAIN_LAST_LAYER_ONLY,epochs=epochs, learning_rate=learning_rate)
+
     else:
         model = build_googlenet_extractor(device)
+        final_loss = None
 
 
     # Extract features
@@ -279,10 +282,14 @@ if __name__ == '__main__':
 
     num_classes = len(train_dataset.classes) if FINE_TUNE else None
     save_metrics_json(
-        model_name="googlenet",
-        top_k_accuracy=topk_acc,
-        batch_size=batch_size,
-        is_finetuned=FINE_TUNE,
-        num_classes=num_classes,
-        runtime=total_time
-    )
+    model_name="googlenet",
+    top_k_accuracy=topk_acc,
+    batch_size=batch_size,
+    is_finetuned=FINE_TUNE,
+    num_classes=num_classes,
+    runtime=total_time,
+    loss_function="CrossEntropyLoss" if FINE_TUNE else "None",
+    num_epochs=epochs if FINE_TUNE else None,
+    final_loss=final_loss
+)
+

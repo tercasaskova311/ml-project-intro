@@ -65,6 +65,7 @@ class DinoClassifier(nn.Module):
 # Trains only the linear classification head
 def train_head(model, dataloader, optimizer, criterion):
     model.train()
+    final_loss = None
     for epoch in range(EPOCHS):
         running_loss = 0.0
         for images, labels in tqdm(dataloader, desc=f"Epoch {epoch+1}/{EPOCHS}"):
@@ -77,7 +78,10 @@ def train_head(model, dataloader, optimizer, criterion):
             optimizer.step()
 
             running_loss += loss.item()
-        print(f"Loss: {running_loss / len(dataloader):.4f}")
+        final_loss = running_loss / len(dataloader)
+        print(f"Loss: {final_loss:.4f}")
+    return final_loss
+
 
 # ---------------- RETRIEVAL DATASET ----------------
 # Custom dataset to load query/gallery images by filename
@@ -172,7 +176,7 @@ def main():
     criterion = nn.CrossEntropyLoss()
 
     print("[4] Fine-tuning head on training set...")
-    train_head(model, train_loader, optimizer, criterion)
+    final_loss = train_head(model, train_loader, optimizer, criterion)
 
     print("[5] Extracting features for retrieval...")
     q_feats, q_names = extract_features(model, QUERY_DIR)
@@ -208,13 +212,17 @@ def main():
 
     print("[8] Saving metrics JSON...")
     save_metrics_json(
-        model_name="dinov2-base",
-        top_k_accuracy=top_k_acc,
-        batch_size=BATCH_SIZE,
-        is_finetuned=True,
-        num_classes=num_classes,
-        runtime=runtime
-    )
+    model_name="dinov2-base",
+    top_k_accuracy=top_k_acc,
+    batch_size=BATCH_SIZE,
+    is_finetuned=True,
+    num_classes=num_classes,
+    runtime=runtime,
+    loss_function="CrossEntropyLoss",
+    num_epochs=EPOCHS,
+    final_loss=final_loss
+)
+
 
     print("✅ Retrieval pipeline with metrics logging complete.")
 

@@ -1,0 +1,13 @@
+{
+  "model_name": "googlenet",
+  "run_id": "20250522-1935",
+  "top_k": 10,
+  "top_k_accuracy": 0.5,
+  "batch_size": 16,
+  "is_finetuned": true,
+  "num_classes": 3,
+  "runtime_seconds": 13.73,
+  "loss_function": "CrossEntropyLoss",
+  "num_epochs": 5,
+  "final_train_loss": 1.0035
+}
