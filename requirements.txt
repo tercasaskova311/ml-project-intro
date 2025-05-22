@@ -1,15 +1,15 @@
 torch       
 torchvision
-timm==0.4.12                # This one seems strict; keep as is if it works
-scikit-learn==1.2.2
-numpy==1.24.4
-pandas==1.5.3
-matplotlib==3.7.1
-tqdm>=4.66.3                # bump minimum to satisfy datasets package
-kaggle==1.5.16
-FuzzyTM>=0.4.0
-transformers>=4.41.0,<5.0.0
-Pillow==9.5.0
+timm             # This one seems strict; keep as is if it works
+scikit-learn
+numpy
+pandas
+matplotlib
+tqdm                # bump minimum to satisfy datasets package
+kaggle
+FuzzyTM
+transformers
+Pillow
 
 #I remove clip-open-ai because it costed conflicts:
 #clip-by-openai version 1.1 only works with torch 1.7.x (specifically between 1.7.1 and 1.7.2).
