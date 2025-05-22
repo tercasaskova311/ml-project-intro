@@ -1,0 +1,9 @@
+{
+  "model_name": "dinov2-base",
+  "run_id": "20250522-1518",
+  "top_k": 5,
+  "top_k_accuracy": 0.5,
+  "batch_size": 16,
+  "is_finetuned": false,
+  "runtime_seconds": 4.04
+}

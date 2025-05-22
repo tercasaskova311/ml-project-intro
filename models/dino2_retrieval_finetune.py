@@ -12,6 +12,8 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
 from transformers import AutoImageProcessor, AutoModel
 from sklearn.metrics.pairwise import cosine_similarity
+import time
+from datetime import datetime
 
 # ---------------- CONFIGURATION ----------------
 K = 5                          # Top-k images to retrieve
@@ -109,8 +111,30 @@ def extract_features(model, folder):
 
     return np.vstack(features), filenames
 
+def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_classes=None, runtime=None):
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+    metrics = {
+        "model_name": model_name,
+        "run_id": timestamp,
+        "top_k": K,
+        "top_k_accuracy": round(top_k_accuracy, 4),
+        "batch_size": batch_size,
+        "is_finetuned": is_finetuned,
+        "num_classes": num_classes,
+        "runtime_seconds": round(runtime, 2) if runtime else None
+    }
+
+    os.makedirs("results", exist_ok=True)
+    out_path = os.path.join("results", f"{model_name}_metrics_{timestamp}.json")
+    with open(out_path, "w") as f:
+        json.dump(metrics, f, indent=2)
+    print(f"📁 Metrics saved to: {out_path}")
+
+
 # ---------------- MAIN LOGIC ----------------
 def main():
+    start_time = time.time()
+
     print("[1] Loading pretrained DINOv2 model...")
     dinov2 = AutoModel.from_pretrained(MODEL_NAME).to(DEVICE)
 
@@ -133,20 +157,44 @@ def main():
 
     print("[6] Performing top-k retrieval for each query...")
     submission = []
+    correct = 0
     for i, qf in enumerate(q_feats):
         sims = cosine_similarity(qf.reshape(1, -1), g_feats)[0]
         topk_idx = np.argsort(sims)[::-1][:K]
+        retrieved = [g_names[j] for j in topk_idx]
         submission.append({
             "filename": q_names[i],
-            "samples": [g_names[j] for j in topk_idx]
+            "samples": retrieved
         })
+        # Accuracy check
+        q_class = q_names[i].split("_")[0]
+        retrieved_classes = [name.split("_")[0] for name in retrieved]
+        if q_class in retrieved_classes:
+            correct += 1
+
+    top_k_acc = correct / len(q_names)
+    print(f"📊 Top-{K} Accuracy: {top_k_acc:.4f}")
 
     print(f"[7] Saving output JSON to {OUTPUT_PATH}...")
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:
         json.dump(submission, f, indent=2)
 
-    print("✅ Retrieval pipeline with fine-tuning complete.")
+    runtime = time.time() - start_time
+    print(f"⏱️ Total runtime: {runtime:.2f} seconds")
+
+    print("[8] Saving metrics JSON...")
+    save_metrics_json(
+        model_name="dinov2-base",
+        top_k_accuracy=top_k_acc,
+        batch_size=BATCH_SIZE,
+        is_finetuned=True,
+        num_classes=num_classes,
+        runtime=runtime
+    )
+
+    print("✅ Retrieval pipeline with metrics logging complete.")
+
 
 # ---------------- RUN SCRIPT ----------------
 if __name__ == "__main__":
