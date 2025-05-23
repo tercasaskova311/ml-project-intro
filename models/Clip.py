@@ -166,7 +166,7 @@ def save_metrics_json(
     num_epochs=None,
     final_loss=None
 ):
-    project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
 
@@ -195,7 +195,7 @@ import time
 start_time = time.time()
 
 # --- Path setup ---
-BASE_DIR = os.path.abspath(os.path.join(os.getcwd(), ".."))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
 DATA_DIR = os.path.join(BASE_DIR, "data")
 
 training_dir = os.path.join(DATA_DIR, "training")
@@ -234,7 +234,7 @@ sub_path = os.path.join(sub_dir, "sub_clip.json")
 with open(sub_path, "w") as f:
     json.dump(submission, f, indent=2)
 
-print(f"Submission saved to: {sub_path}")
+print(f"Submission saved to: {os.path.abspath(sub_path)}")
 
 # --- Compute top-k accuracy ---
 def calculate_top_k_accuracy(query_paths, retrievals, k=10):
