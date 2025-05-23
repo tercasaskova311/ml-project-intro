@@ -1,0 +1,13 @@
+{
+  "model_name": "efficientnet_b0",
+  "run_id": "20250523-1146",
+  "top_k": 10,
+  "top_k_accuracy": 0.5,
+  "batch_size": 32,
+  "is_finetuned": true,
+  "num_classes": 3,
+  "runtime_seconds": 41.34,
+  "loss_function": "MSELoss",
+  "num_epochs": 2,
+  "final_train_loss": 0.0
+}
