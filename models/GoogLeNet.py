@@ -16,7 +16,7 @@ batch_size= 16
 image_size = (224, 224)
 normalize_mean = [0.485, 0.456, 0.406]
 normalize_std = [0.229, 0.224, 0.225]
-FINE_TUNE = True  # Set to False to skip training
+FINE_TUNE = False  # Set to False to skip training
 TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
 epochs = 5
 learning_rate = 1e-4
@@ -152,15 +152,13 @@ def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k):
     sim_matrix = query_embs @ gallery_embs.T  # Cosine similarity
     topk_indices = sim_matrix.topk(k, dim=1, largest=True)[1]
 
-    results = []
+    results = {}
     for i, indices in enumerate(topk_indices):
         query_filename = os.path.basename(query_paths[i])
         top_filenames = [os.path.basename(gallery_paths[j]) for j in indices.tolist()]
-        results.append({
-            "filename": query_filename,
-            "samples": top_filenames
-        })
+        results[query_filename] = top_filenames
     return results
+
 
 def calculate_top_k_accuracy(results):
     def extract_class(filename):
@@ -169,15 +167,16 @@ def calculate_top_k_accuracy(results):
     correct = 0
     total = len(results)
 
-    for item in results:
-        query_class = extract_class(item["filename"])
-        retrieved_classes = [extract_class(fn) for fn in item["samples"]]
+    for query_filename, retrieved_list in results.items():
+        query_class = extract_class(query_filename)
+        retrieved_classes = [extract_class(fn) for fn in retrieved_list]
         if query_class in retrieved_classes:
             correct += 1
 
     acc = correct / total
     print(f"🎯 Top-{k} Accuracy: {acc:.4f}")
     return acc
+
 
 
 from datetime import datetime

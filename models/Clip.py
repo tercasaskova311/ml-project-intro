@@ -13,7 +13,7 @@ from datetime import datetime
 
 k=5
 batch_size= 16
-FINE_TUNE = True  # Set to False to skip training
+FINE_TUNE = False  # Set to False to skip training
 TRAIN_LAST_LAYER_ONLY = False  # Set to False to fine-tune entire model
 epochs = 1
 lr = 1e-4
@@ -114,32 +114,47 @@ def encode_images(image_folder, model, preprocess):
         features /= features.norm(dim=-1, keepdim=True)
     return features, image_paths
 
-def retrieve(query_features, gallery_features, gallery_paths, k):
+def retrieve(query_features, gallery_features, query_paths, gallery_paths, k):
     similarities = query_features @ gallery_features.T  # cosine similarity matrix
     topk_values, topk_indices = similarities.topk(k, dim=-1)
 
-    results = []
+    results = {}
     for i in range(query_features.shape[0]):
-        retrieved = [gallery_paths[idx] for idx in topk_indices[i].cpu().numpy()]
-        results.append(retrieved)
+        query_filename = os.path.basename(query_paths[i])
+        retrieved_filenames = [os.path.basename(gallery_paths[idx]) for idx in topk_indices[i].cpu().numpy()]
+        results[query_filename] = retrieved_filenames
     return results
 
-def visualize_retrieval(query_paths, retrieval_results):
-    for i, query_path in enumerate(query_paths):
-        plt.figure(figsize=(15, 5))
+GALLERY_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "test", "gallery"))
+
+
+def visualize_retrieval(query_paths, retrieval_results, k=5):
+    for query_path in query_paths:
+        qfile = os.path.basename(query_path)
+        if qfile not in retrieval_results:
+            print(f"[⚠️] {qfile} not found in retrieval results. Skipping.")
+            continue
+
+        plt.figure(figsize=(18, 4))
         
-        # Show query
-        plt.subplot(1, 6, 1)
+        # Show query image
+        plt.subplot(1, k + 1, 1)
         plt.title("Query")
         plt.axis("off")
         plt.imshow(Image.open(query_path))
-        
-        # Show retrieved images
-        for j, img_path in enumerate(retrieval_results[i]):
-            plt.subplot(1, 6, j+2)
-            plt.title(f"Rank {j+1}")
+
+        # Show top-k retrieved images
+        for j, img_name in enumerate(retrieval_results[qfile][:k]):
+            gallery_img_path = os.path.join(GALLERY_ROOT, img_name)
+            if not os.path.exists(gallery_img_path):
+                print(f"[❌] File not found: {gallery_img_path}")
+                continue
+            plt.subplot(1, k + 1, j + 2)
+            plt.title(f"Rank {j + 1}")
             plt.axis("off")
-            plt.imshow(Image.open(img_path))
+            plt.imshow(Image.open(gallery_img_path))
+
+        plt.tight_layout()
         plt.show()
 
 def compute_accuracy(query_labels, retrieval_results, gallery_labels):
@@ -151,8 +166,6 @@ def compute_accuracy(query_labels, retrieval_results, gallery_labels):
         if query_label in retrieved_labels:
             correct += 1
     return correct / len(query_labels)
-
-
 
 
 def save_metrics_json(
@@ -176,7 +189,7 @@ def save_metrics_json(
     metrics = {
         "model_name": model_name,
         "run_id": timestamp,
-        "top_k": 10,
+        "top_k": k,
         "top_k_accuracy": round(top_k_accuracy, 4),
         "batch_size": batch_size,
         "is_finetuned": is_finetuned,
@@ -218,15 +231,15 @@ gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
 query_features, query_paths = encode_images(query_dir, model, preprocess)
 
 # --- Retrieval ---
-retrieval_results = retrieve(query_features, gallery_features, gallery_paths, k=k)
-
+retrieval_results = retrieve(query_features, gallery_features, query_paths, gallery_paths, k)
+print(f"Retrieved {k} samples for each query image.")
 # --- Save submission JSON ---
-submission = []
-for i, qname in enumerate(query_paths):
-    submission.append({
-        "filename": os.path.basename(qname),
-        "samples": [os.path.basename(p) for p in retrieval_results[i]]
-    })
+submission = {}
+for qname in query_paths:
+    qfile = os.path.basename(qname)
+    submission[qfile] = retrieval_results[qfile]
+
+
 
 sub_dir = os.path.join(BASE_DIR, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
@@ -239,14 +252,16 @@ print(f"Submission saved to: {os.path.abspath(sub_path)}")
 # --- Compute top-k accuracy ---
 def calculate_top_k_accuracy(query_paths, retrievals, k=10):
     correct = 0
-    for i, qname in enumerate(query_paths):
-        q_class = os.path.basename(qname).split("_")[0]
-        retrieved_classes = [os.path.basename(p).split("_")[0] for p in retrievals[i]]
+    for qname in query_paths:
+        qfile = os.path.basename(qname)
+        q_class = qfile.split("_")[0]
+        retrieved_classes = [os.path.basename(p).split("_")[0] for p in retrievals[qfile]]
         if q_class in retrieved_classes:
             correct += 1
     acc = correct / len(query_paths)
     print(f"Top-{k} Accuracy: {acc:.4f}")
     return acc
+
 
 top_k_acc = calculate_top_k_accuracy(query_paths, retrieval_results, k=k)
 
@@ -265,4 +280,4 @@ save_metrics_json(
 )
 
 # --- Optional visualization ---
-visualize_retrieval(query_paths, retrieval_results)
+visualize_retrieval(query_paths, retrieval_results, k)

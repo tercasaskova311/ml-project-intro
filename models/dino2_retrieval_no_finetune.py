@@ -123,16 +123,13 @@ def main(k=K):
     gallery_features, gallery_filenames = extract_features(gallery_dataset)
 
     # Compute top-k similarity
-    results = []
+    results =  {}
     correct = 0
     for i, q_feat in enumerate(query_features):
         sims = cosine_similarity(q_feat.reshape(1, -1), gallery_features)[0]
         topk = np.argsort(sims)[::-1][:k]
         retrieved = [gallery_filenames[j] for j in topk]
-        results.append({
-            "filename": query_filenames[i],
-            "samples": retrieved
-        })
+        results[query_filenames[i]] = retrieved
         # Accuracy calculation
         q_class = query_filenames[i].split("_")[0]
         retrieved_classes = [name.split("_")[0] for name in retrieved]

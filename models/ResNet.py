@@ -22,7 +22,7 @@ test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 
-fine_tune = True  # Set to False to skip training and only extract features
+fine_tune = False  # Set to False to skip training and only extract features
 resnet_version = 'resnet34'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
 k=10
 batch_size = 16
@@ -294,14 +294,11 @@ query_paths = [os.path.join(test_query_dir, name) for name in query_dataset.imag
 gallery_paths = [os.path.join(test_gallery_dir, name) for name in gallery_dataset.image_files]
 
 # 6. Build submission format
-submission = []
+submission = {}
 for qi, qpath in enumerate(query_paths):
     qname = os.path.basename(qpath)
     retrieved = [os.path.basename(gallery_paths[i]) for i in I[qi]]
-    submission.append({
-        "filename": qname,
-        "samples": retrieved
-    })
+    submission[qname] = retrieved
 
 # 7. Write JSON submission
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/

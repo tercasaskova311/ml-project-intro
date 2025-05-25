@@ -235,15 +235,13 @@ def main():
     query_feats, query_names = extract_features(model, query_loader)
 
     print("[4] Calculating similarity and saving JSON...")
-    result = []
+    result = {}
     sim_matrix = cosine_similarity(query_feats, gallery_feats)
     for i, qname in enumerate(query_names):
         topk_idx = np.argsort(sim_matrix[i])[::-1][:K]
         samples = [gallery_names[idx] for idx in topk_idx]
-        result.append({
-            "filename": qname,
-            "samples": samples
-        })
+        result[qname] = samples
+
 
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "submissions"))
     os.makedirs(output_dir, exist_ok=True)

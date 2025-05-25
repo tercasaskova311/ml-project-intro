@@ -17,10 +17,10 @@ batch_size = 8 # Batch size for data loading
 image_size = (224, 224)
 normalize_mean = [0.485, 0.456, 0.406]
 normalize_std = [0.229, 0.224, 0.225]
-# FINE_TUNE = False  # Set to False to skip training
-# TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
-# epochs = 5
-# learning_rate = 1e-4
+FINE_TUNE = False  # Set to False to skip training
+TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
+epochs = 5
+learning_rate = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 #
@@ -166,11 +166,12 @@ if __name__ == "__main__":
         ("resnet_mix", I_r, paths_r),
         ("dino_mix",   I_d, paths_d),
     ]:
-        submission = []
+        submission = {}
         for qi, qpath in enumerate(query_paths):
             qname = os.path.basename(qpath)
             retrieved = [os.path.basename(paths[i]) for i in I[qi]]
-            submission.append({"filename": qname, "samples": retrieved})
+            submission[qname] = retrieved
+
 
         out_path = os.path.join(os.path.dirname(__file__), "..", "submissions", f"sub_{name}.json")
         os.makedirs(os.path.dirname(out_path), exist_ok=True)

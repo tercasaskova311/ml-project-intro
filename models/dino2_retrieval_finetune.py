@@ -183,21 +183,22 @@ def main():
     g_feats, g_names = extract_features(model, GALLERY_DIR)
 
     print("[6] Performing top-k retrieval for each query...")
-    submission = []
+    submission = {}
     correct = 0
     for i, qf in enumerate(q_feats):
         sims = cosine_similarity(qf.reshape(1, -1), g_feats)[0]
         topk_idx = np.argsort(sims)[::-1][:K]
         retrieved = [g_names[j] for j in topk_idx]
-        submission.append({
-            "filename": q_names[i],
-            "samples": retrieved
-        })
+
+        query_filename = q_names[i]
+        submission[query_filename] = retrieved
+
         # Accuracy check
-        q_class = q_names[i].split("_")[0]
+        q_class = query_filename.split("_")[0]
         retrieved_classes = [name.split("_")[0] for name in retrieved]
         if q_class in retrieved_classes:
             correct += 1
+
 
     top_k_acc = correct / len(q_names)
     print(f"📊 Top-{K} Accuracy: {top_k_acc:.4f}")
