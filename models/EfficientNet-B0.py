@@ -15,8 +15,8 @@ import time
 K = 10  # top-k images to retrieve
 FINE_TUNE = True  # Toggle this to enable/disable fine-tuning
 USE_GEM = False    # Toggle this to switch between GAP and GeM
-batch_size=32
-epochs=2
+batch_size=64
+epochs=10
 
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))

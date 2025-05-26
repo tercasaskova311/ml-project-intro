@@ -27,7 +27,7 @@ resnet_version = 'resnet50'  # Change to: 'resnet18', 'resnet34', 'resnet50', or
 k=10
 batch_size = 128
 num_epochs = 10
-learning_rate = 0.0001
+learning_rate = 1e-5  # Learning rate for training, if fine-tuning
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # print(os.path.exists(train_dir))

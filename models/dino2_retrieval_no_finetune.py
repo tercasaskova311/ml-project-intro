@@ -12,8 +12,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from datetime import datetime
 
 # -------------------- CONFIGURATION --------------------
-K = 5  # Number of top similar images to retrieve
-BATCH_SIZE = 16  # Batch size for feature extraction
+K = 10  # Number of top similar images to retrieve
+BATCH_SIZE = 64  # Batch size for feature extraction
 MODEL_NAME = "facebook/dinov2-base"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

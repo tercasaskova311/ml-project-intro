@@ -14,10 +14,10 @@ from timm import create_model
 
 # ----- Config -----
 K = 10
-FINE_TUNE = False
+FINE_TUNE = True
 USE_GEM = False  # ViT doesn't use this directly, but we preserve flag for consistency
-batch_size = 32
-epochs = 2
+batch_size = 64
+epochs = 10
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

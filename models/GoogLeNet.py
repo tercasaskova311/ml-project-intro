@@ -11,15 +11,15 @@ from torchvision.datasets import ImageFolder
 import torch.optim as optim
 
 #CONFIG
-k=5
-batch_size= 16
+k=10
+batch_size= 64
 image_size = (224, 224)
 normalize_mean = [0.485, 0.456, 0.406]
 normalize_std = [0.229, 0.224, 0.225]
 FINE_TUNE = False  # Set to False to skip training
 TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
-epochs = 5
-learning_rate = 1e-4
+epochs = 10
+learning_rate = 1e-5
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # ------------------------------

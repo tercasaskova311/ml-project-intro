@@ -11,12 +11,12 @@ import json
 from datetime import datetime
 
 
-k=5
-batch_size= 16
+k=10
+batch_size= 64
 FINE_TUNE = False  # Set to False to skip training
-TRAIN_LAST_LAYER_ONLY = False  # Set to False to fine-tune entire model
-epochs = 1
-lr = 1e-4
+TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
+epochs = 10
+lr = 1e-5
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # image_size = (224, 224)
