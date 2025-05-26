@@ -174,7 +174,7 @@ def calculate_top_k_accuracy(results):
             correct += 1
 
     acc = correct / total
-    print(f"🎯 Top-{k} Accuracy: {acc:.4f}")
+    print(f"Top-{k} Accuracy: {acc:.4f}")
     return acc
 
 
@@ -216,7 +216,7 @@ def save_metrics_json(
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"📁 Metrics saved to: {os.path.abspath(out_path)}")
+    print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
 
 # ------------------------------
@@ -269,15 +269,15 @@ if __name__ == '__main__':
         json.dump(results, f, indent=2)
     
     total_time = time.time() - start_time
-    print(f"⏱️ Total runtime: {total_time:.2f} seconds")
+    print(f"Total runtime: {total_time:.2f} seconds")
 
-    print(f"✅ Submission saved to: {output_file}")
+    print(f"Submission saved to: {output_file}")
 
-    print("[📈] Calculating Top-K accuracy...")
+    print("Calculating Top-K accuracy...")
     topk_acc = calculate_top_k_accuracy(results)
 
     total_time = time.time() - start_time
-    print(f"⏱ Total runtime: {total_time:.2f} seconds")
+    print(f"Total runtime: {total_time:.2f} seconds")
 
     num_classes = len(train_dataset.classes) if FINE_TUNE else None
     save_metrics_json(
