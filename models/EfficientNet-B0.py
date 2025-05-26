@@ -316,7 +316,7 @@ def save_metrics_json(
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"📁 Metrics saved to: {os.path.abspath(out_path)}")
+    print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
 
 if __name__ == "__main__":
