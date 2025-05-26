@@ -106,7 +106,7 @@ def save_metrics_json(
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"📁 Metrics saved to: {os.path.abspath(out_path)}")
+    print(f" Metrics saved to: {os.path.abspath(out_path)}")
 
 
 # -------------------- MAIN SCRIPT --------------------
@@ -137,13 +137,13 @@ def main(k=K):
             correct += 1
 
     top_k_acc = correct / len(query_filenames)
-    print(f"[✅] Top-{k} Accuracy: {top_k_acc:.4f}")
+    print(f"Top-{k} Accuracy: {top_k_acc:.4f}")
 
     # Save submission
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:
         json.dump(results, f, indent=2)
-    print(f"[📁] Results saved to: {OUTPUT_PATH}")
+    print(f"Results saved to: {OUTPUT_PATH}")
 
     # Save metrics
     runtime = time.time() - start_time

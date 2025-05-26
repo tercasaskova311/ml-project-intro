@@ -201,7 +201,7 @@ def main():
 
 
     top_k_acc = correct / len(q_names)
-    print(f"📊 Top-{K} Accuracy: {top_k_acc:.4f}")
+    print(f"Top-{K} Accuracy: {top_k_acc:.4f}")
 
     print(f"[7] Saving output JSON to {OUTPUT_PATH}...")
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
@@ -209,7 +209,7 @@ def main():
         json.dump(submission, f, indent=2)
 
     runtime = time.time() - start_time
-    print(f"⏱️ Total runtime: {runtime:.2f} seconds")
+    print(f"Total runtime: {runtime:.2f} seconds")
 
     print("[8] Saving metrics JSON...")
     save_metrics_json(
@@ -225,7 +225,7 @@ def main():
 )
 
 
-    print("✅ Retrieval pipeline with metrics logging complete.")
+    print("Retrieval pipeline with metrics logging complete.")
 
 
 # ---------------- RUN SCRIPT ----------------
