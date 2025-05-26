@@ -14,10 +14,14 @@ from timm import create_model
 
 # ----- Config -----
 K = 10
-FINE_TUNE = False
+FINE_TUNE = True
 USE_GEM = False  # ViT doesn't use this directly, but we preserve flag for consistency
-batch_size = 32
+batch_size = 16
 epochs = 2
+
+# image_size = (224, 224)
+normalize_mean = [0.485, 0.456, 0.406]
+normalize_std = [0.229, 0.224, 0.225]
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -26,8 +30,8 @@ transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
+        mean=normalize_mean,
+        std=normalize_std
     )
 ])
 
