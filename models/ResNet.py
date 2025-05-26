@@ -28,7 +28,7 @@ resnet_version = 'resnet50'  # Change to: 'resnet18', 'resnet34', 'resnet50', or
 k=10
 batch_size = 32
 num_epochs = 2
-learning_rate = 1e-5
+learning_rate = 0.001
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
@@ -171,13 +171,15 @@ def denormalize(img_tensor):
     return (img_tensor * std + mean).clamp(0, 1)
 
 
-def calculate_accuracy (k):
+def calculate_accuracy(similarities, k):
     correct = 0
     for i, query_sim in enumerate(similarities):
-        top_k_indices = np.argsort(query_sim)[-k:][::-1]  # Top k indices by similarity
-        if true_indices[i] in top_k_indices:
+        top_k_indices = np.argsort(query_sim)[-k:][::-1]
+        if i in top_k_indices:
             correct += 1
-    return correct / len(similarities)
+    accuracy = correct / len(similarities)
+    print(f"Top-{k} Accuracy: {accuracy:.4f}")
+    return accuracy
 
 
 def save_metrics_json(
@@ -237,19 +239,22 @@ else:
 query_features = extract_features(model, query_loader)
 gallery_features = extract_features(model, gallery_loader)
 
+# 4. Compute similarities and top-k indices
+similarities = calculate_similarity(query_features, gallery_features)
+I = np.argsort(similarities, axis=1)[:, -k:][:, ::-1]
 
-# 4. Get image paths
+# 5. Get image paths
 query_paths = [os.path.join(test_query_dir, name) for name in query_dataset.image_files]
 gallery_paths = [os.path.join(test_gallery_dir, name) for name in gallery_dataset.image_files]
 
-# 5. Build submission format
+# 6. Build submission format
 submission = {}
 for qi, qpath in enumerate(query_paths):
     qname = os.path.basename(qpath)
     retrieved = [os.path.basename(gallery_paths[i]) for i in I[qi]]
     submission[qname] = retrieved
 
-# 6. Write JSON submission
+# 7. Write JSON submission
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
 sub_dir = os.path.join(project_root, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
@@ -264,7 +269,7 @@ print("top_k_acc =", top_k_acc)
 
 
 # 8. Evaluate accuracy
-print(top_k_acc = calculate_accuracy(similarities, true_indices=true_indices, k=k))
+top_k_acc = calculate_accuracy (similarities, k)
 
 # 9. Save metrics
 runtime = time.time() - start_time
