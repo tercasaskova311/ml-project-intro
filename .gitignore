@@ -4,3 +4,5 @@
 # Ignore data and images
 #!data/README.md  # optional placeholder
 data/
+data_flower/
+data_fruit/
