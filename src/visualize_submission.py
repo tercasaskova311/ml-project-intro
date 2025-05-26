@@ -60,3 +60,5 @@ for i, (query_file, retrieved_files) in enumerate(submission.items()):
 
     plt.tight_layout()
     plt.show()
+    plt.close()
+    #plt.savefig('plot.png', bbox_inches='tight', dpi=300)  # Save the plot if needed
