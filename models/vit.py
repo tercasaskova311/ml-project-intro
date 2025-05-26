@@ -15,9 +15,8 @@ from timm import create_model
 # ----- Config -----
 K = 10
 FINE_TUNE = False
-USE_GEM = False  # ViT doesn't use this directly, but we preserve flag for consistency
-batch_size = 32
-epochs = 2
+batch_size = 64
+epochs = 5
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -25,10 +24,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
-    transforms.Normalize(
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
 def load_vit_model(num_classes=None, fine_tune=False):
@@ -38,7 +34,6 @@ def load_vit_model(num_classes=None, fine_tune=False):
     return model.to(DEVICE)
 
 def finetune_model(model, dataloader, epochs, lr=1e-4):
-    print("Fine-tuning ViT model...")
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = torch.nn.MSELoss()
@@ -96,24 +91,31 @@ def extract_features(model, dataloader):
         filenames.extend(fnames)
     return np.vstack(features), filenames
 
-def calculate_top_k_accuracy(query_feats, gallery_feats, query_names, gallery_names, k=10):
+def extract_class(filename, train_lookup):
+    if "_" in filename:
+        parts = filename.split("_")
+        if len(parts) >= 2 and not parts[0].isdigit():
+            return "_".join(parts[:-1])
+    return train_lookup.get(os.path.basename(filename), "unknown")
+
+def calculate_top_k_accuracy(query_paths, retrievals, train_lookup, k=10):
     correct = 0
-    total = len(query_names)
-    def extract_class(name):
-        return name.split("_")[0]
-    sim_matrix = cosine_similarity(query_feats, gallery_feats)
-    for i, qname in enumerate(query_names):
-        qclass = extract_class(qname)
-        topk_idx = np.argsort(sim_matrix[i])[::-1][:k]
-        retrieved = [extract_class(gallery_names[j]) for j in topk_idx]
-        if qclass in retrieved:
+    total = 0
+    for qname in query_paths:
+        q_class = extract_class(qname, train_lookup)
+        if q_class == "unknown":
+            continue
+        retrieved_classes = [extract_class(name, train_lookup) for name in retrievals[qname]]
+        if q_class in retrieved_classes:
             correct += 1
-    acc = correct / total
-    print(f"Top-{k} Accuracy: {acc:.4f}")
+        total += 1
+    acc = correct / total if total > 0 else 0.0
+    print(f"Top-{k} Accuracy (valid queries only): {acc:.4f}")
     return acc
 
-def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_classes, runtime, loss_function, num_epochs, final_loss, pooling_type=None):
-    project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_classes,
+                      runtime, loss_function, num_epochs, final_loss, pooling_type=None):
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
@@ -134,33 +136,26 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_
     }
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
-    print(f"📁 Metrics saved to: {os.path.abspath(out_path)}")
+    print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
 def main():
     start_time = time.time()
-    print("[1] Loading ViT model...")
     model = load_vit_model()
-
     if FINE_TUNE:
-        print("[1.5] Fine-tuning is ENABLED.")
         train_dataset = AugmentedImageFolder(os.path.join(DATA_DIR, "training"), transform)
         train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
         final_loss = finetune_model(model, train_loader, epochs, lr=1e-4)
     else:
         final_loss = None
-        print("[1.5] Fine-tuning is DISABLED.")
 
-    print("[2] Extracting gallery features...")
     gallery_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/gallery"), transform)
     gallery_loader = DataLoader(gallery_dataset, batch_size)
     gallery_feats, gallery_names = extract_features(model, gallery_loader)
 
-    print("[3] Extracting query features...")
     query_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/query"), transform)
     query_loader = DataLoader(query_dataset, batch_size)
     query_feats, query_names = extract_features(model, query_loader)
 
-    print("[4] Calculating similarity and saving submission...")
     result = {}
     sim_matrix = cosine_similarity(query_feats, gallery_feats)
     for i, qname in enumerate(query_names):
@@ -168,20 +163,29 @@ def main():
         samples = [gallery_names[idx] for idx in topk_idx]
         result[qname] = samples
 
-    output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "submissions"))
+    submission = {}
+    for qname in query_names:
+        submission[qname] = result[qname]
+
+    output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "submissions")
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, "sub_vit.json")
     with open(output_path, "w") as f:
-        json.dump(result, f, indent=2)
+        json.dump(submission, f, indent=2)
     print(f"Submission saved to: {output_path}")
 
-    print("[5] Evaluating Top-K accuracy...")
-    topk_acc = calculate_top_k_accuracy(query_feats, gallery_feats, query_names, gallery_names, k=K)
+    TRAIN_LOOKUP = {}
+    train_root = os.path.join(DATA_DIR, "training")
+    for class_name in os.listdir(train_root):
+        class_path = os.path.join(train_root, class_name)
+        if not os.path.isdir(class_path):
+            continue
+        for fname in os.listdir(class_path):
+            if fname.lower().endswith(('.jpg', '.png')):
+                TRAIN_LOOKUP[fname] = class_name
 
+    topk_acc = calculate_top_k_accuracy(query_names, result, TRAIN_LOOKUP, k=K)
     total_time = time.time() - start_time
-    print(f"Total time taken: {total_time:.2f} seconds")
-
-    print("[6] Saving metrics...")
     num_classes = len(train_dataset.classes) if FINE_TUNE else None
     save_metrics_json("vit_base_patch16_224", topk_acc, batch_size, FINE_TUNE, num_classes, total_time,
                       "MSELoss" if FINE_TUNE else "NotApplicable", epochs if FINE_TUNE else 0, final_loss)

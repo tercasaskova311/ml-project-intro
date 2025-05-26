@@ -1,12 +1,12 @@
 {
-  "model_name": "efficientnet_b0",
-  "run_id": "20250522-1926",
+  "model_name": "dinov2-base",
+  "run_id": "20250526-1136",
   "top_k": 10,
-  "top_k_accuracy": 0.5,
-  "batch_size": 32,
+  "top_k_accuracy": 0.42,
+  "batch_size": 64,
   "is_finetuned": false,
   "num_classes": null,
-  "runtime_seconds": 0.6,
+  "runtime_seconds": 88.59,
   "loss_function": "None",
   "num_epochs": null,
   "final_train_loss": null
