@@ -1,20 +1,21 @@
 import os
+import time
+import numpy as np
+from datetime import datetime
+from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib.pyplot as plt
+import json
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, models, transforms
+from torchvision.models import resnet50, ResNet50_Weights
 from torch.utils.data import DataLoader
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-import matplotlib.pyplot as plt
-import json
-from datetime import datetime
 from torch.utils.data import Dataset
 from PIL import Image
 
-
 # Config
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
 data_dir = os.path.join(BASE_DIR, 'data')
 train_dir = os.path.join(data_dir, 'training')
@@ -22,17 +23,35 @@ test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 
-fine_tune = False  # Set to False to skip training and only extract features
-resnet_version = 'resnet34'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
+fine_tune = True  # Set to False to skip training and only extract features
+resnet_version = 'resnet50'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
 k=10
-batch_size = 16
-num_epochs = 5
+batch_size = 32
+num_epochs = 2
 learning_rate = 0.001
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # print(os.path.exists(train_dir))
 # print(os.listdir(train_dir))  # will list subfolders/classes for training set
 # print(os.listdir(test_query_dir))
+
+
+def initialize_model(resnet_version=resnet_version, pretrained=True, feature_extract=True):
+    from torchvision.models import ResNet50_Weights
+
+    # Get the model constructor from torchvision.models
+    model_fn = getattr(models, resnet_version)
+    
+    # Load with proper weights
+    weights = ResNet50_Weights.DEFAULT if pretrained else None
+    model = model_fn(weights=weights)
+
+    if feature_extract:
+        for param in model.parameters():
+            param.requires_grad = False
+        model.fc = nn.Identity()
+    return model.to(device)
 
 
 
@@ -52,28 +71,6 @@ class ImageDatasetWithoutLabels(Dataset):
         if self.transform:
             image = self.transform(image)
         return image, img_name  # returning image and filename (no label)
-
-import os
-
-class ImageDatasetWithoutLabels(Dataset):
-    def __init__(self, folder, transform=None):
-        self.image_files = sorted([
-            f for f in os.listdir(folder)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
-        ])
-        self.folder = folder
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.folder, self.image_files[idx])
-        image = Image.open(img_path).convert("RGB")
-        if self.transform:
-            image = self.transform(image)
-        return image, self.image_files[idx]
-    
 
 
 data_transforms = {
@@ -102,25 +99,6 @@ gallery_dataset = ImageDatasetWithoutLabels(test_gallery_dir, data_transforms['t
 gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False)
 
 
-def get_test_loader(dir_path):
-    dataset = datasets.ImageFolder(dir_path, data_transforms['test'])
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-    return loader
-
-query_dataset = ImageDatasetWithoutLabels(test_query_dir, transform=data_transforms['test'])
-query_loader = DataLoader(query_dataset, batch_size=batch_size, shuffle=False)
-
-
-def initialize_model(resnet_version, pretrained=True, feature_extract=True):
-    model_fn = getattr(models, resnet_version)
-    model = model_fn(pretrained=pretrained)
-
-    if feature_extract:
-        # For feature extraction, keep the backbone and remove the classification head
-        model.fc = nn.Identity()
-
-    return model.to(device)
-
 def train_model(model, dataloader, num_epochs=num_epochs, learning_rate=learning_rate):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -144,22 +122,19 @@ def train_model(model, dataloader, num_epochs=num_epochs, learning_rate=learning
     return final_loss
 
 
-def fine_tune_model(model, num_classes):
-    # Safely extract in_features from Linear layer
-    if isinstance(model.fc, nn.Sequential):
-        # Search for the first Linear layer in the Sequential block
-        for layer in model.fc:
-            if isinstance(layer, nn.Linear):
-                num_features = layer.in_features
-                break
-        else:
-            raise ValueError("No Linear layer found in model.fc Sequential block.")
-    elif isinstance(model.fc, nn.Linear):
-        num_features = model.fc.in_features
-    else:
-        raise TypeError("model.fc must be either nn.Linear or nn.Sequential")
+def fine_tune_model(model, num_classes, learning_rate):
+    for param in model.parameters():
+        param.requires_grad = True
+    
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
-    # Replace with a new Sequential block for classification
+    #for param in model.fc.parameters():
+        #param.requires_grad = False   # unfreeze only new head
+    # Safely get in_features BEFORE replacing the classifier
+
+    num_features = model.fc.in_features if hasattr(model.fc, "in_features") else 2048
+
+    # Replace classification head
     model.fc = nn.Sequential(
         nn.Linear(num_features, 512),
         nn.ReLU(),
@@ -195,6 +170,7 @@ def denormalize(img_tensor):
     std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
     return (img_tensor * std + mean).clamp(0, 1)
 
+
 def calculate_accuracy(similarities, k):
     correct = 0
     for i, query_sim in enumerate(similarities):
@@ -204,24 +180,6 @@ def calculate_accuracy(similarities, k):
     accuracy = correct / len(similarities)
     print(f"Top-{k} Accuracy: {accuracy:.4f}")
     return accuracy
-
-def visualize_retrieved_images(query_loader, gallery_loader, similarities, k):
-    query_images = get_all_images(query_loader)
-    gallery_images = get_all_images(gallery_loader)
-
-    for i, query_sim in enumerate(similarities):
-        top_k_indices = np.argsort(query_sim)[-k:][::-1]
-        plt.figure(figsize=(10, 2))
-        plt.subplot(1, k + 1, 1)
-        plt.imshow(denormalize(query_images[i]).permute(1, 2, 0))
-        plt.title("Query")
-        plt.axis('off')
-        for j, idx in enumerate(top_k_indices):
-            plt.subplot(1, k + 1, j + 2)
-            plt.imshow(denormalize(gallery_images[idx]).permute(1, 2, 0))
-            plt.title(f"Top {j+1}")
-            plt.axis('off')
-        plt.show()
 
 
 def save_metrics_json(
@@ -261,20 +219,16 @@ def save_metrics_json(
 
     print(f"[DEBUG] Metrics saved to: {os.path.abspath(out_path)}")
 
-
-
-
-
-import time
 start_time = time.time()
 
 # 1. Initialize model
-model = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
+resnet = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
+model = resnet
 
 # 2. Optional fine-tuning
 if fine_tune:
     num_classes = len(train_dataset.classes)
-    model = fine_tune_model(model, num_classes=num_classes)
+    model = fine_tune_model(model, num_classes=num_classes, learning_rate=learning_rate)
     final_loss = train_model(model, train_loader, num_epochs=num_epochs, learning_rate=learning_rate)
 else:
     model.fc = nn.Identity()
@@ -304,17 +258,18 @@ for qi, qpath in enumerate(query_paths):
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
 sub_dir = os.path.join(project_root, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
-out_path = os.path.join(sub_dir, f"sub_{resnet_version}.json")
+out_path = os.path.join(sub_dir, f"submission_{datetime.now().strftime('%Y%m%d-%H%M')}.json")
+with open(out_path, 'w') as f:
+    json.dump(submission, f, indent=2)
 print(f"[DEBUG] Submission saved to: {out_path}")
 
-with open(out_path, "w") as f:
-    json.dump(submission, f, indent=2)
-
-print(f"Done! {len(submission)} queries written to: {out_path}")
+# 7. Evaluate accuracy and print
+top_k_acc = calculate_accuracy( k=k)
+print("top_k_acc =", top_k_acc)
 
 
 # 8. Evaluate accuracy
-top_k_acc = calculate_accuracy(similarities, k)
+top_k_acc = calculate_accuracy (similarities, k)
 
 # 9. Save metrics
 runtime = time.time() - start_time
@@ -325,11 +280,10 @@ save_metrics_json(
     is_finetuned=fine_tune,
     num_classes=len(train_dataset.classes),
     runtime=runtime,
-    loss_function="CrossEntropyLoss",  # fisso, se usi sempre questo
+    loss_function="CrossEntropyLoss",
     num_epochs=num_epochs,
     final_loss=final_loss
 )
 
 
-# 10. Optional: Visualize retrieval results
-visualize_retrieved_images(query_loader, gallery_loader, similarities, k)
+
