@@ -1,19 +1,42 @@
 import os
+import time
+import numpy as np
+from datetime import datetime
+from sklearn.metrics.pairwise import cosine_similarity
+import matplotlib.pyplot as plt
+import json
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torchvision import datasets, models, transforms
+from torchvision.models import resnet50, ResNet50_Weights
 from torch.utils.data import DataLoader
-import numpy as np
-from sklearn.metrics.pairwise import cosine_similarity
-import matplotlib.pyplot as plt
-import json
-from datetime import datetime
 from torch.utils.data import Dataset
 from PIL import Image
-from torchvision.models import resnet50, ResNet50_Weights
 
-def initialize_model(resnet_version="resnet50", pretrained=True, feature_extract=True):
+# Config
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
+data_dir = os.path.join(BASE_DIR, 'data')
+train_dir = os.path.join(data_dir, 'training')
+test_query_dir = os.path.join(data_dir, 'test', 'query')
+test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
+
+
+fine_tune = True  # Set to False to skip training and only extract features
+k=10
+batch_size = 64
+num_epochs = 6
+learning_rate = 0.001
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+resnet_version = "resnet50"
+
+# print(os.path.exists(train_dir))
+# print(os.listdir(train_dir))  # will list subfolders/classes for training set
+# print(os.listdir(test_query_dir))
+
+
+def initialize_model(resnet_version=resnet_version, pretrained=True, feature_extract=True):
     from torchvision.models import ResNet50_Weights
 
     # Get the model constructor from torchvision.models
@@ -30,25 +53,6 @@ def initialize_model(resnet_version="resnet50", pretrained=True, feature_extract
 
     return model.to(device)
 
-# Config
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
-data_dir = os.path.join(BASE_DIR, 'data')
-train_dir = os.path.join(data_dir, 'training')
-test_query_dir = os.path.join(data_dir, 'test', 'query')
-test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
-
-
-fine_tune = True  # Set to False to skip training and only extract features
-k=10
-batch_size = 64
-num_epochs = 6
-learning_rate = 0.001
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = initialize_model("resnet50", pretrained=True, feature_extract=True)
-
-# print(os.path.exists(train_dir))
-# print(os.listdir(train_dir))  # will list subfolders/classes for training set
-# print(os.listdir(test_query_dir))
 
 
 class ImageDatasetWithoutLabels(Dataset):
@@ -95,16 +99,6 @@ gallery_dataset = ImageDatasetWithoutLabels(test_gallery_dir, data_transforms['t
 gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False)
 
 
-def initialize_model(resnet_version, pretrained=True, feature_extract=True):
-    model_fn = getattr(models, model)
-    model = model_fn(pretrained=pretrained)
-
-    if feature_extract:
-        # For feature extraction, keep the backbone and remove the classification head
-        model.fc = nn.Identity()
-
-    return model.to(device)
-
 def train_model(model, dataloader, num_epochs=num_epochs, learning_rate=learning_rate):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -128,15 +122,17 @@ def train_model(model, dataloader, num_epochs=num_epochs, learning_rate=learning
     return final_loss
 
 
-def fine_tune_model(model, num_classes):
-    # 🔒 Freeze all layers
+def fine_tune_model(model, num_classes, learning_rate):
     for param in model.parameters():
         param.requires_grad = True
+    
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+
     #for param in model.fc.parameters():
         #param.requires_grad = False   # unfreeze only new head
     # Safely get in_features BEFORE replacing the classifier
 
-    num_features = model.fc.in_features if isinstance(model.fc, nn.Linear) else 2048
+    num_features = model.fc.in_features if hasattr(model.fc, "in_features") else 2048
 
     # Replace classification head
     model.fc = nn.Sequential(
@@ -174,13 +170,26 @@ def denormalize(img_tensor):
     std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
     return (img_tensor * std + mean).clamp(0, 1)
 
+
+# Precompute true indices once
+true_indices = []
+for q_name in query_dataset.image_files:
+    try:
+        idx = gallery_dataset.image_files.index(q_name)
+        true_indices.append(idx)
+    except ValueError:
+        print(f"[WARNING] Query image {q_name} not found in gallery. Assigning -1")
+        true_indices.append(-1)  # or handle differently
+
+
 def calculate_accuracy(similarities, true_indices, k):
     correct = 0
     for i, query_sim in enumerate(similarities):
-        top_k_indices = np.argsort(query_sim)[-k:][::-1]
+        top_k_indices = np.argsort(query_sim)[-k:][::-1]  # Top k indices by similarity
         if true_indices[i] in top_k_indices:
             correct += 1
     return correct / len(similarities)
+
 
 
 
@@ -221,20 +230,15 @@ def save_metrics_json(
 
     print(f"[DEBUG] Metrics saved to: {os.path.abspath(out_path)}")
 
-
-
-
-
-import time
 start_time = time.time()
 
 # 1. Initialize model
-model = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
-
+resnet = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
+model = resnet
 # 2. Optional fine-tuning
 if fine_tune:
     num_classes = len(train_dataset.classes)
-    model = fine_tune_model(model, num_classes=num_classes)
+    model = fine_tune_model(model, num_classes=num_classes, learning_rate=learning_rate)
     final_loss = train_model(model, train_loader, num_epochs=num_epochs, learning_rate=learning_rate)
 else:
     model.fc = nn.Identity()
@@ -264,17 +268,15 @@ for qi, qpath in enumerate(query_paths):
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
 sub_dir = os.path.join(project_root, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
-out_path = os.path.join(sub_dir, f"sub_{resnet_version}.json")
+out_path = os.path.join(sub_dir, f"submission_{datetime.now().strftime('%Y%m%d-%H%M')}.json")
+with open(out_path, 'w') as f:
+    json.dump(submission, f, indent=2)
 print(f"[DEBUG] Submission saved to: {out_path}")
 
-with open(out_path, "w") as f:
-    json.dump(submission, f, indent=2)
-
-print(f"Done! {len(submission)} queries written to: {out_path}")
 
 
 # 8. Evaluate accuracy
-top_k_acc = calculate_accuracy(similarities, k)
+top_k_acc = calculate_accuracy(similarities, true_indices=true_indices, k=k)
 
 # 9. Save metrics
 runtime = time.time() - start_time
