@@ -13,8 +13,8 @@ import time
 
 # ----- Config -----
 K = 10  # top-k images to retrieve
-FINE_TUNE = True  # Toggle this to enable/disable fine-tuning
-USE_GEM = False    # Toggle this to switch between GAP and GeM
+FINE_TUNE = False  # Toggle this to enable/disable fine-tuning
+USE_GEM = True    # Toggle this to switch between GAP and GeM
 batch_size=32
 epochs=2
 

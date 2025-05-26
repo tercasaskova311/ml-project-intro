@@ -16,10 +16,10 @@ import time
 from datetime import datetime
 
 # ---------------- CONFIGURATION ----------------
-K = 5                          # Top-k images to retrieve
-EPOCHS = 5                     # Number of training epochs
-BATCH_SIZE = 16                # Batch size during training/inference
-LR = 1e-4                      # Learning rate for optimizer
+K = 10                          # Top-k images to retrieve
+EPOCHS = 2                     # Number of training epochs
+BATCH_SIZE = 32                # Batch size during training/inference
+LR = 1e-5                      # Learning rate for optimizer
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Paths to dataset and output

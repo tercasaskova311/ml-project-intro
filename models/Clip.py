@@ -11,11 +11,11 @@ import json
 from datetime import datetime
 
 
-k=5
-batch_size= 16
+k=10
+batch_size= 32
 FINE_TUNE = False  # Set to False to skip training
-TRAIN_LAST_LAYER_ONLY = False  # Set to False to fine-tune entire model
-epochs = 1
+TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
+epochs = 5
 lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -203,7 +203,7 @@ def save_metrics_json(
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"📁 Metrics saved to: {os.path.abspath(out_path)}")
+    print(f"Metrics saved to: {os.path.abspath(out_path)}")
 import time
 start_time = time.time()
 
@@ -223,12 +223,14 @@ train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
 # --- Optional fine-tuning ---
 if FINE_TUNE:
     final_loss = fine_tune_clip(train_loader, model)
+    print(f"Fine tuned. Final training loss: {final_loss:.4f}")
 else:
     final_loss = None
 
 # --- Feature encoding ---
 gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
 query_features, query_paths = encode_images(query_dir, model, preprocess)
+print(f"Encoded gallery images and query images.")
 
 # --- Retrieval ---
 retrieval_results = retrieve(query_features, gallery_features, query_paths, gallery_paths, k)

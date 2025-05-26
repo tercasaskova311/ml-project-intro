@@ -22,12 +22,12 @@ test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 
-fine_tune = False  # Set to False to skip training and only extract features
-resnet_version = 'resnet50'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
+fine_tune = True  # Set to False to skip training and only extract features
+resnet_version = 'resnet101'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
 k=10
 batch_size = 32
-num_epochs = 5
-learning_rate = 0.001
+num_epochs = 2
+learning_rate = 1e-5
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # print(os.path.exists(train_dir))
@@ -195,15 +195,33 @@ def denormalize(img_tensor):
     std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
     return (img_tensor * std + mean).clamp(0, 1)
 
-def calculate_accuracy(similarities, k):
+# def calculate_accuracy(similarities, k): old accuracy function, not using pseudo-labels
+#     correct = 0
+#     for i, query_sim in enumerate(similarities):
+#         top_k_indices = np.argsort(query_sim)[-k:][::-1]
+#         if i in top_k_indices:
+#             correct += 1
+#     accuracy = correct / len(similarities)
+#     print(f"Top-{k} Accuracy: {accuracy:.4f}")
+#     return accuracy
+
+def calculate_accuracy(results, k):
+    def extract_class(filename):
+        return filename.split("_")[0]  # Adjust this logic to fit your filename format
+
     correct = 0
-    for i, query_sim in enumerate(similarities):
-        top_k_indices = np.argsort(query_sim)[-k:][::-1]
-        if i in top_k_indices:
+    total = len(results)
+
+    for query_filename, retrieved_list in results.items():
+        query_class = extract_class(query_filename)
+        retrieved_classes = [extract_class(fn) for fn in retrieved_list]
+        if query_class in retrieved_classes:
             correct += 1
-    accuracy = correct / len(similarities)
-    print(f"Top-{k} Accuracy: {accuracy:.4f}")
-    return accuracy
+
+    acc = correct / total
+    print(f"Top-{k} Accuracy (pseudo-labels): {acc:.4f}")
+    return acc
+
 
 def visualize_retrieved_images(query_loader, gallery_loader, similarities, k):
     query_images = get_all_images(query_loader)
@@ -314,7 +332,8 @@ print(f"Done! {len(submission)} queries written to: {out_path}")
 
 
 # 8. Evaluate accuracy
-top_k_acc = calculate_accuracy(similarities, k)
+top_k_acc = calculate_accuracy(submission, k)
+# top_k_acc = calculate_accuracy(similarities, k) old accuracy function, not using pseudo-labels
 
 # 9. Save metrics
 runtime = time.time() - start_time
