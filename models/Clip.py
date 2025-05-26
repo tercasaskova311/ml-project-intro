@@ -73,10 +73,8 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
 
             # Tokenize text labels
             texts = clip.tokenize(labels).to(device)
-
-            # Forward pass
-            image_features = model.encode_image(images)
-            text_features = model.encode_text(texts)
+            image_features = model.encode_image(images.to(device))
+            text_features = model.encode_text(texts)            
 
             # Normalize features
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
@@ -281,3 +279,5 @@ save_metrics_json(
 
 # --- Optional visualization ---
 visualize_retrieval(query_paths, retrieval_results, k)
+
+
