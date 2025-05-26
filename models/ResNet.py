@@ -23,9 +23,9 @@ test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 
 fine_tune = False  # Set to False to skip training and only extract features
-resnet_version = 'resnet34'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
+resnet_version = 'resnet50'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
 k=10
-batch_size = 16
+batch_size = 32
 num_epochs = 5
 learning_rate = 0.001
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
