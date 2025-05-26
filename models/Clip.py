@@ -13,7 +13,7 @@ from datetime import datetime
 
 k=10
 batch_size= 64
-FINE_TUNE = False  # Set to False to skip training
+FINE_TUNE = True  # Set to False to skip training
 TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
 epochs = 10
 lr = 1e-5
