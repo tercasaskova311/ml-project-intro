@@ -1,0 +1,13 @@
+{
+  "model_name": "clip-vit-b32",
+  "run_id": "20250526-1618",
+  "top_k": 10,
+  "top_k_accuracy": 1.0,
+  "batch_size": 64,
+  "is_finetuned": false,
+  "num_classes": null,
+  "runtime_seconds": 86.48,
+  "loss_function": "CrossEntropyLoss",
+  "num_epochs": 5,
+  "final_train_loss": null
+}
