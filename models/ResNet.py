@@ -11,10 +11,26 @@ import json
 from datetime import datetime
 from torch.utils.data import Dataset
 from PIL import Image
+from torchvision.models import resnet50, ResNet50_Weights
 
+def initialize_model(resnet_version="resnet50", pretrained=True, feature_extract=True):
+    from torchvision.models import ResNet50_Weights
+
+    # Get the model constructor from torchvision.models
+    model_fn = getattr(models, resnet_version)
+    
+    # Load with proper weights
+    weights = ResNet50_Weights.DEFAULT if pretrained else None
+    model = model_fn(weights=weights)
+
+    if feature_extract:
+        for param in model.parameters():
+            param.requires_grad = False
+        model.fc = nn.Identity()
+
+    return model.to(device)
 
 # Config
-
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
 data_dir = os.path.join(BASE_DIR, 'data')
 train_dir = os.path.join(data_dir, 'training')
@@ -22,18 +38,17 @@ test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 
-fine_tune = False  # Set to False to skip training and only extract features
-resnet_version = 'resnet50'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
+fine_tune = True  # Set to False to skip training and only extract features
 k=10
-batch_size = 32
-num_epochs = 5
+batch_size = 64
+num_epochs = 6
 learning_rate = 0.001
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = initialize_model("resnet50", pretrained=True, feature_extract=True)
 
 # print(os.path.exists(train_dir))
 # print(os.listdir(train_dir))  # will list subfolders/classes for training set
 # print(os.listdir(test_query_dir))
-
 
 
 class ImageDatasetWithoutLabels(Dataset):
@@ -52,28 +67,6 @@ class ImageDatasetWithoutLabels(Dataset):
         if self.transform:
             image = self.transform(image)
         return image, img_name  # returning image and filename (no label)
-
-import os
-
-class ImageDatasetWithoutLabels(Dataset):
-    def __init__(self, folder, transform=None):
-        self.image_files = sorted([
-            f for f in os.listdir(folder)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
-        ])
-        self.folder = folder
-        self.transform = transform
-
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.folder, self.image_files[idx])
-        image = Image.open(img_path).convert("RGB")
-        if self.transform:
-            image = self.transform(image)
-        return image, self.image_files[idx]
-    
 
 
 data_transforms = {
@@ -102,17 +95,8 @@ gallery_dataset = ImageDatasetWithoutLabels(test_gallery_dir, data_transforms['t
 gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False)
 
 
-def get_test_loader(dir_path):
-    dataset = datasets.ImageFolder(dir_path, data_transforms['test'])
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-    return loader
-
-query_dataset = ImageDatasetWithoutLabels(test_query_dir, transform=data_transforms['test'])
-query_loader = DataLoader(query_dataset, batch_size=batch_size, shuffle=False)
-
-
 def initialize_model(resnet_version, pretrained=True, feature_extract=True):
-    model_fn = getattr(models, resnet_version)
+    model_fn = getattr(models, model)
     model = model_fn(pretrained=pretrained)
 
     if feature_extract:
@@ -145,21 +129,16 @@ def train_model(model, dataloader, num_epochs=num_epochs, learning_rate=learning
 
 
 def fine_tune_model(model, num_classes):
-    # Safely extract in_features from Linear layer
-    if isinstance(model.fc, nn.Sequential):
-        # Search for the first Linear layer in the Sequential block
-        for layer in model.fc:
-            if isinstance(layer, nn.Linear):
-                num_features = layer.in_features
-                break
-        else:
-            raise ValueError("No Linear layer found in model.fc Sequential block.")
-    elif isinstance(model.fc, nn.Linear):
-        num_features = model.fc.in_features
-    else:
-        raise TypeError("model.fc must be either nn.Linear or nn.Sequential")
+    # 🔒 Freeze all layers
+    for param in model.parameters():
+        param.requires_grad = True
+    #for param in model.fc.parameters():
+        #param.requires_grad = False   # unfreeze only new head
+    # Safely get in_features BEFORE replacing the classifier
 
-    # Replace with a new Sequential block for classification
+    num_features = model.fc.in_features if isinstance(model.fc, nn.Linear) else 2048
+
+    # Replace classification head
     model.fc = nn.Sequential(
         nn.Linear(num_features, 512),
         nn.ReLU(),
@@ -195,33 +174,14 @@ def denormalize(img_tensor):
     std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
     return (img_tensor * std + mean).clamp(0, 1)
 
-def calculate_accuracy(similarities, k):
+def calculate_accuracy(similarities, true_indices, k):
     correct = 0
     for i, query_sim in enumerate(similarities):
         top_k_indices = np.argsort(query_sim)[-k:][::-1]
-        if i in top_k_indices:
+        if true_indices[i] in top_k_indices:
             correct += 1
-    accuracy = correct / len(similarities)
-    print(f"Top-{k} Accuracy: {accuracy:.4f}")
-    return accuracy
+    return correct / len(similarities)
 
-def visualize_retrieved_images(query_loader, gallery_loader, similarities, k):
-    query_images = get_all_images(query_loader)
-    gallery_images = get_all_images(gallery_loader)
-
-    for i, query_sim in enumerate(similarities):
-        top_k_indices = np.argsort(query_sim)[-k:][::-1]
-        plt.figure(figsize=(10, 2))
-        plt.subplot(1, k + 1, 1)
-        plt.imshow(denormalize(query_images[i]).permute(1, 2, 0))
-        plt.title("Query")
-        plt.axis('off')
-        for j, idx in enumerate(top_k_indices):
-            plt.subplot(1, k + 1, j + 2)
-            plt.imshow(denormalize(gallery_images[idx]).permute(1, 2, 0))
-            plt.title(f"Top {j+1}")
-            plt.axis('off')
-        plt.show()
 
 
 def save_metrics_json(
@@ -331,5 +291,3 @@ save_metrics_json(
 )
 
 
-# 10. Optional: Visualize retrieval results
-visualize_retrieved_images(query_loader, gallery_loader, similarities, k)
