@@ -24,10 +24,18 @@ test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 
 fine_tune = True  # Set to False to skip training and only extract features
+<<<<<<< HEAD
+resnet_version = 'resnet101'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
+k=10
+batch_size = 32
+num_epochs = 2
+learning_rate = 1e-5
+=======
 k=10
 batch_size = 64
 num_epochs = 6
 learning_rate = 0.001
+>>>>>>> 632ad39adc6d139b8f3bd78b003dc8c4aea95abc
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 resnet_version = "resnet50"
 
@@ -169,6 +177,35 @@ def denormalize(img_tensor):
     std = torch.tensor([0.229, 0.224, 0.225]).view(3, 1, 1)
     return (img_tensor * std + mean).clamp(0, 1)
 
+<<<<<<< HEAD
+# def calculate_accuracy(similarities, k): old accuracy function, not using pseudo-labels
+#     correct = 0
+#     for i, query_sim in enumerate(similarities):
+#         top_k_indices = np.argsort(query_sim)[-k:][::-1]
+#         if i in top_k_indices:
+#             correct += 1
+#     accuracy = correct / len(similarities)
+#     print(f"Top-{k} Accuracy: {accuracy:.4f}")
+#     return accuracy
+
+def calculate_accuracy(results, k):
+    def extract_class(filename):
+        return filename.split("_")[0]  # Adjust this logic to fit your filename format
+
+    correct = 0
+    total = len(results)
+
+    for query_filename, retrieved_list in results.items():
+        query_class = extract_class(query_filename)
+        retrieved_classes = [extract_class(fn) for fn in retrieved_list]
+        if query_class in retrieved_classes:
+            correct += 1
+
+    acc = correct / total
+    print(f"Top-{k} Accuracy (pseudo-labels): {acc:.4f}")
+    return acc
+
+=======
 
 def calculate_accuracy (k):
     correct = 0
@@ -177,6 +214,7 @@ def calculate_accuracy (k):
         if true_indices[i] in top_k_indices:
             correct += 1
     return correct / len(similarities)
+>>>>>>> 632ad39adc6d139b8f3bd78b003dc8c4aea95abc
 
 
 def save_metrics_json(
@@ -261,6 +299,9 @@ print(f"[DEBUG] Submission saved to: {out_path}")
 top_k_acc = calculate_accuracy( k=k)
 print("top_k_acc =", top_k_acc)
 
+
+# 8. Evaluate accuracy
+print(top_k_acc = calculate_accuracy(similarities, true_indices=true_indices, k=k))
 
 # 9. Save metrics
 runtime = time.time() - start_time
