@@ -30,6 +30,7 @@ for filename in os.listdir(RESULTS_DIR):
             "top_k_accuracy": data.get("top_k_accuracy", 0) or 0,
             "final_train_loss": data.get("final_train_loss", 0) or 0,
             "runtime_seconds": data.get("runtime_seconds", 0) or 0,
+            "filename": filename,  # <-- store filename here
         }
 
         groups[key].append(metrics)
@@ -43,8 +44,9 @@ for key, runs in groups.items():
     runtimes = [r["runtime_seconds"] for r in runs]
 
     print(f"🔹 Model: {model_name}, Batch: {batch_size}, Fine-tuned: {is_finetuned}, "
-          f"Classes: {num_classes}, Epochs: {num_epochs}", "Pooling: {pooling_type}")
+          f"Classes: {num_classes}, Epochs: {num_epochs}, Pooling: {pooling_type}")
     print(f"   • Runs: {len(runs)}")
     print(f"   • Avg Accuracy:      {np.mean(accs):.4f}")
     print(f"   • Avg Final Loss:    {np.mean(losses):.4f}")
     print(f"   • Avg Runtime (sec): {np.mean(runtimes):.2f}\n")
+

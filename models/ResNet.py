@@ -251,6 +251,8 @@ gallery_features = extract_features(model, gallery_loader)
 
 # 4. Compute similarities and top-k indices
 similarities = calculate_similarity(query_features, gallery_features)
+
+# Define I (top-k indices for each query)
 I = np.argsort(similarities, axis=1)[:, -k:][:, ::-1]
 
 # 5. Get image paths
@@ -273,10 +275,10 @@ with open(out_path, 'w') as f:
     json.dump(submission, f, indent=2)
 print(f"[DEBUG] Submission saved to: {out_path}")
 
+# 8. Evaluate accuracy and print
+top_k_acc = calculate_accuracy(similarities, true_indices=true_indices, k=k)
+print("top_k_acc =", top_k_acc)
 
-
-# 8. Evaluate accuracy
-print(top_k_acc = calculate_accuracy(similarities, true_indices=true_indices, k=k))
 
 # 9. Save metrics
 runtime = time.time() - start_time
@@ -287,9 +289,10 @@ save_metrics_json(
     is_finetuned=fine_tune,
     num_classes=len(train_dataset.classes),
     runtime=runtime,
-    loss_function="CrossEntropyLoss",  # fisso, se usi sempre questo
+    loss_function="CrossEntropyLoss",
     num_epochs=num_epochs,
     final_loss=final_loss
 )
+
 
 

@@ -60,9 +60,5 @@ for i, (query_file, retrieved_files) in enumerate(submission.items()):
 
     plt.tight_layout()
     plt.show()
-<<<<<<< HEAD
-    plt.savefig("result.png")
-=======
-
->>>>>>> 032378627d722eea1f5bc63ae21dc844b6966f5b
+    plt.savefig("submisson.png")
 
