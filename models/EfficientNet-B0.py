@@ -13,10 +13,10 @@ import time
 
 # ----- Config -----
 K = 10  # top-k images to retrieve
-FINE_TUNE = False  # Toggle this to enable/disable fine-tuning
+FINE_TUNE = True  # Toggle this to enable/disable fine-tuning
 USE_GEM = False    # Toggle this to switch between GAP and GeM
 batch_size=32
-epochs=1
+epochs=2
 
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
@@ -90,8 +90,10 @@ def finetune_model(model, dataloader, epochs, lr=1e-4):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = torch.nn.MSELoss()  # Dummy self-supervised loss
+    final_loss = None
 
     for epoch in range(epochs):
+        running_loss = 0.0
         for imgs, _ in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}"):
             imgs = imgs.to(DEVICE)
             feats = model(imgs)
@@ -101,8 +103,15 @@ def finetune_model(model, dataloader, epochs, lr=1e-4):
             loss.backward()
             optimizer.step()
 
+            running_loss += loss.item()
+
+        final_loss = running_loss / len(dataloader)
+        print(f"Epoch {epoch+1} - Loss: {final_loss:.4f}")
+
     model.eval()
     print("Fine-tuning completed.")
+    return final_loss
+
 
 # ----- Custom Dataset -----
 class ImagePathDataset(Dataset):
@@ -173,8 +182,9 @@ def main():
         print("[1.5] Fine-tuning is ENABLED.")
         train_dataset = ImageFolder(os.path.join(DATA_DIR, "training"), transform)
         train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
-        finetune_model(model, train_loader)
+        final_loss = finetune_model(model, train_loader, epochs, lr=1e-4)
     else:
+        final_loss = None
         print("[1.5] Fine-tuning is DISABLED.")
 
     print("[2] Extracting features from gallery...")
@@ -215,38 +225,58 @@ def main():
 
     print("[6] Saving metrics...")
     num_classes = len(train_dataset.classes) if FINE_TUNE else None
+    
     save_metrics_json(
-        model_name="efficientnet_b0",
-        top_k_accuracy=topk_acc,
-        batch_size=batch_size,
-        is_finetuned=FINE_TUNE,
-        num_classes=num_classes,
-        runtime=total_time
-    )
+    model_name="efficientnet_b0",
+    top_k_accuracy=topk_acc,
+    batch_size=batch_size,
+    is_finetuned=FINE_TUNE,
+    num_classes=num_classes,
+    runtime=total_time,
+    loss_function="MSELoss" if FINE_TUNE else "None",
+    num_epochs=epochs if FINE_TUNE else None,
+    final_loss=final_loss
+)
 
 
-def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_classes=None, runtime=None):
-    from datetime import datetime
+from datetime import datetime
+
+def save_metrics_json(
+    model_name,
+    top_k_accuracy,
+    batch_size,
+    is_finetuned,
+    num_classes=None,
+    runtime=None,
+    loss_function="CrossEntropyLoss",
+    num_epochs=None,
+    final_loss=None
+):
+    project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+    results_dir = os.path.join(project_root, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+    out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
 
     metrics = {
         "model_name": model_name,
         "run_id": timestamp,
-        "top_k": K,
+        "top_k": 10,
         "top_k_accuracy": round(top_k_accuracy, 4),
         "batch_size": batch_size,
         "is_finetuned": is_finetuned,
         "num_classes": num_classes,
-        "runtime_seconds": round(runtime, 2) if runtime else None
+        "runtime_seconds": round(runtime, 2) if runtime else None,
+        "loss_function": loss_function,
+        "num_epochs": num_epochs,
+        "final_train_loss": round(final_loss, 4) if final_loss is not None else None
     }
-
-    out_path = os.path.join("results", f"{model_name}_metrics_{timestamp}.json")
-    os.makedirs("results", exist_ok=True)
 
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
-    
-    print(f"📊 Metrics saved to: {out_path}")
+
+    print(f"📁 Metrics saved to: {os.path.abspath(out_path)}")
 
 
 if __name__ == "__main__":
