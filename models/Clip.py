@@ -11,12 +11,12 @@ import json
 from datetime import datetime
 
 
-k=10
-batch_size= 32
-FINE_TUNE = True  # Set to False to skip training
-TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
-epochs = 4
-lr = 1e-5
+k=5
+batch_size= 16
+FINE_TUNE = False  # Set to False to skip training
+TRAIN_LAST_LAYER_ONLY = False  # Set to False to fine-tune entire model
+epochs = 1
+lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # image_size = (224, 224)
@@ -73,8 +73,10 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
 
             # Tokenize text labels
             texts = clip.tokenize(labels).to(device)
-            image_features = model.encode_image(images.to(device))
-            text_features = model.encode_text(texts)            
+
+            # Forward pass
+            image_features = model.encode_image(images)
+            text_features = model.encode_text(texts)
 
             # Normalize features
             image_features = image_features / image_features.norm(dim=-1, keepdim=True)
@@ -279,5 +281,3 @@ save_metrics_json(
 
 # --- Optional visualization ---
 visualize_retrieval(query_paths, retrieval_results, k)
-
-

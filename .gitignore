@@ -3,3 +3,4 @@
 
 # Ignore data and images
 !data/README.md  # optional placeholder
+data/

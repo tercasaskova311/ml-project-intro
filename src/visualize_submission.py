@@ -1,6 +1,3 @@
-#on terminal: python src/visualize_submission.py
-#then insert name of file to plot
-
 import os
 import json
 from PIL import Image
@@ -13,26 +10,28 @@ if not submission_name.endswith('.json'):
 
 submission_path = os.path.join("submissions", submission_name)  # path to the JSON file
 query_dir = "data/test/query"                         # path to query images
-gallery_dir = "data/test/gallery"                         # path to training images
-max_queries_to_show = 20                               # how many query images to visualize
+gallery_dir = "data/test/gallery"                     # path to gallery images
+max_queries_to_show = 20                              # how many query images to visualize
 
 # Load JSON
 with open(submission_path, 'r') as f:
     submission = json.load(f)
 
 # Visualize
-for i, entry in enumerate(submission[:max_queries_to_show]):
-    query_file = entry['filename']
-    retrieved_files = entry['samples']
+for i, (query_file, retrieved_files) in enumerate(submission.items()):
+    if i >= max_queries_to_show:
+        break
 
     # Load query image
     query_img_path = os.path.join(query_dir, query_file)
+    if not os.path.exists(query_img_path):
+        print(f"[Warning] Query image not found: {query_img_path}")
+        continue
     query_img = Image.open(query_img_path).convert("RGB")
 
     # Load retrieved images
     retrieved_imgs = []
     for fname in retrieved_files:
-        # Since gallery may be nested in folders, search all subfolders
         found = False
         for root, _, files in os.walk(gallery_dir):
             if fname in files:
@@ -40,7 +39,7 @@ for i, entry in enumerate(submission[:max_queries_to_show]):
                 found = True
                 break
         if not found:
-            print(f"[Warning] Could not find {fname} in training data!")
+            print(f"[Warning] Could not find {fname} in gallery!")
 
     # Plot
     n = len(retrieved_imgs)

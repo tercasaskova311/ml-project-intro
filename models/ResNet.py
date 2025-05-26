@@ -14,16 +14,16 @@ from PIL import Image
 
 
 # Config
-BASE_DIR = os.getcwd()  # this gets /.../ml-project-intro/models
-data_dir = os.path.abspath(os.path.join(BASE_DIR, '..', 'data'))        # go one level up and into data/
-data_dir = os.path.abspath(data_dir) #Normalize the path (resolve '..' correctly)
 
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
+data_dir = os.path.join(BASE_DIR, 'data')
 train_dir = os.path.join(data_dir, 'training')
-test_query_dir = os.path.join(data_dir,  'test', 'query')
+test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
-fine_tune = True  # Set to False to skip training and only extract features
-resnet_version = 'resnet101'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
+
+fine_tune = False  # Set to False to skip training and only extract features
+resnet_version = 'resnet34'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
 k=10
 batch_size = 16
 num_epochs = 5
@@ -77,7 +77,7 @@ class ImageDatasetWithoutLabels(Dataset):
 
 
 data_transforms = {
-    'train': transforms.Compose([
+    'training': transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
@@ -90,7 +90,7 @@ data_transforms = {
 }
 
 # For training data (has subfolders/classes)
-train_dataset = datasets.ImageFolder(train_dir, data_transforms['train'])
+train_dataset = datasets.ImageFolder(train_dir, data_transforms['training'])
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
 # For query data (NO subfolders/classes)
@@ -235,7 +235,7 @@ def save_metrics_json(
     num_epochs=None,
     final_loss=None
 ):
-    project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
     results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
 
@@ -259,7 +259,8 @@ def save_metrics_json(
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"Metrics saved to: {os.path.abspath(out_path)}")
+    print(f"[DEBUG] Metrics saved to: {os.path.abspath(out_path)}")
+
 
 
 
@@ -293,25 +294,24 @@ query_paths = [os.path.join(test_query_dir, name) for name in query_dataset.imag
 gallery_paths = [os.path.join(test_gallery_dir, name) for name in gallery_dataset.image_files]
 
 # 6. Build submission format
-submission = []
+submission = {}
 for qi, qpath in enumerate(query_paths):
     qname = os.path.basename(qpath)
     retrieved = [os.path.basename(gallery_paths[i]) for i in I[qi]]
-    submission.append({
-        "filename": qname,
-        "samples": retrieved
-    })
+    submission[qname] = retrieved
 
 # 7. Write JSON submission
-base_dir = os.path.abspath(os.path.join(os.getcwd(), ".."))
-sub_dir = os.path.join(base_dir, "submissions")
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
+sub_dir = os.path.join(project_root, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
 out_path = os.path.join(sub_dir, f"sub_{resnet_version}.json")
+print(f"[DEBUG] Submission saved to: {out_path}")
 
 with open(out_path, "w") as f:
     json.dump(submission, f, indent=2)
 
 print(f"Done! {len(submission)} queries written to: {out_path}")
+
 
 # 8. Evaluate accuracy
 top_k_acc = calculate_accuracy(similarities, k)
