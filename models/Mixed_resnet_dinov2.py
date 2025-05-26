@@ -13,13 +13,13 @@ from torchvision.datasets import ImageFolder
 
 k=10  # Number of top results to retrieve
 num_workers = 2  # Number of workers for data loading
-batch_size = 8 # Batch size for data loading
+batch_size = 16 # Batch size for data loading
 image_size = (224, 224)
 normalize_mean = [0.485, 0.456, 0.406]
 normalize_std = [0.229, 0.224, 0.225]
 FINE_TUNE = False  # Set to False to skip training
 TRAIN_LAST_LAYER_ONLY = True  # Set to False to fine-tune entire model
-epochs = 5
+epochs = 4
 learning_rate = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 

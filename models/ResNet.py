@@ -276,7 +276,7 @@ print(f"[DEBUG] Submission saved to: {out_path}")
 
 
 # 8. Evaluate accuracy
-top_k_acc = calculate_accuracy(similarities, true_indices=true_indices, k=k)
+print(top_k_acc = calculate_accuracy(similarities, true_indices=true_indices, k=k))
 
 # 9. Save metrics
 runtime = time.time() - start_time

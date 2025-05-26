@@ -12,7 +12,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from datetime import datetime
 
 # -------------------- CONFIGURATION --------------------
-K = 5  # Number of top similar images to retrieve
+K = 10  # Number of top similar images to retrieve
 BATCH_SIZE = 16  # Batch size for feature extraction
 MODEL_NAME = "facebook/dinov2-base"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -82,7 +82,8 @@ def save_metrics_json(
     num_epochs=None,
     final_loss=None
 ):
-    project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+    # Use the script's directory to resolve path robustly
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
 
@@ -106,7 +107,7 @@ def save_metrics_json(
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f" Metrics saved to: {os.path.abspath(out_path)}")
+    print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
 
 # -------------------- MAIN SCRIPT --------------------

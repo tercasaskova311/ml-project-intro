@@ -1,0 +1,14 @@
+{
+  "model_name": "vit_base_patch16_224",
+  "run_id": "20250526-1221",
+  "top_k": 10,
+  "top_k_accuracy": 0.0,
+  "batch_size": 16,
+  "is_finetuned": true,
+  "num_classes": 5,
+  "runtime_seconds": 3422.95,
+  "loss_function": "MSELoss",
+  "num_epochs": 2,
+  "final_train_loss": 0.0,
+  "pooling_type": null
+}
