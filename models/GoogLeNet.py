@@ -88,20 +88,20 @@ def fine_tune_model(model, train_loader, device, num_classes, train_last_layer_o
     model.train()
 
     if train_last_layer_only:
-        # Replace classifier with trainable one
         model.fc = torch.nn.Linear(model.fc.in_features, num_classes).to(device)
         for param in model.parameters():
             param.requires_grad = False
         for param in model.fc.parameters():
             param.requires_grad = True
     else:
-        # Fine-tune whole model
         model.fc = torch.nn.Linear(model.fc.in_features, num_classes).to(device)
         for param in model.parameters():
             param.requires_grad = True
 
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), learning_rate)
     criterion = torch.nn.CrossEntropyLoss()
+
+    final_loss = None
 
     for epoch in range(epochs):
         running_loss = 0.0
@@ -122,10 +122,12 @@ def fine_tune_model(model, train_loader, device, num_classes, train_last_layer_o
             correct += predicted.eq(labels).sum().item()
 
         acc = 100. * correct / total
-        print(f"[FT] Epoch {epoch+1}: Loss={running_loss:.3f}, Acc={acc:.2f}%")
+        final_loss = running_loss / len(train_loader)
+        print(f"[FT] Epoch {epoch+1}: Loss={final_loss:.3f}, Acc={acc:.2f}%")
 
     print("[FT] Fine-tuning complete.")
-    return model.eval()
+    return model.eval(), final_loss
+
 
 
 
@@ -150,15 +152,13 @@ def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k):
     sim_matrix = query_embs @ gallery_embs.T  # Cosine similarity
     topk_indices = sim_matrix.topk(k, dim=1, largest=True)[1]
 
-    results = []
+    results = {}
     for i, indices in enumerate(topk_indices):
         query_filename = os.path.basename(query_paths[i])
         top_filenames = [os.path.basename(gallery_paths[j]) for j in indices.tolist()]
-        results.append({
-            "filename": query_filename,
-            "samples": top_filenames
-        })
+        results[query_filename] = top_filenames
     return results
+
 
 def calculate_top_k_accuracy(results):
     def extract_class(filename):
@@ -167,39 +167,56 @@ def calculate_top_k_accuracy(results):
     correct = 0
     total = len(results)
 
-    for item in results:
-        query_class = extract_class(item["filename"])
-        retrieved_classes = [extract_class(fn) for fn in item["samples"]]
+    for query_filename, retrieved_list in results.items():
+        query_class = extract_class(query_filename)
+        retrieved_classes = [extract_class(fn) for fn in retrieved_list]
         if query_class in retrieved_classes:
             correct += 1
 
     acc = correct / total
-    print(f"🎯 Top-{k} Accuracy: {acc:.4f}")
+    print(f"Top-{k} Accuracy: {acc:.4f}")
     return acc
 
 
-def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_classes=None, runtime=None):
-    from datetime import datetime
+
+from datetime import datetime
+
+def save_metrics_json(
+    model_name,
+    top_k_accuracy,
+    batch_size,
+    is_finetuned,
+    num_classes=None,
+    runtime=None,
+    loss_function="CrossEntropyLoss",
+    num_epochs=None,
+    final_loss=None
+):
+    project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
+    results_dir = os.path.join(project_root, "results")
+    os.makedirs(results_dir, exist_ok=True)
+
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
+    out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
 
     metrics = {
         "model_name": model_name,
         "run_id": timestamp,
-        "top_k": k,
+        "top_k": 10,
         "top_k_accuracy": round(top_k_accuracy, 4),
         "batch_size": batch_size,
         "is_finetuned": is_finetuned,
         "num_classes": num_classes,
-        "runtime_seconds": round(runtime, 2) if runtime else None
+        "runtime_seconds": round(runtime, 2) if runtime else None,
+        "loss_function": loss_function,
+        "num_epochs": num_epochs,
+        "final_train_loss": round(final_loss, 4) if final_loss is not None else None
     }
-
-    out_path = os.path.join("results", f"{model_name}_metrics_{timestamp}.json")
-    os.makedirs("results", exist_ok=True)
 
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
 
-    print(f"📊 Metrics saved to: {out_path}")
+    print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
 
 # ------------------------------
@@ -229,10 +246,11 @@ if __name__ == '__main__':
         model.aux1 = torch.nn.Identity()
         model.aux2 = torch.nn.Identity()
 
-        model = fine_tune_model(model, train_loader, device, num_classes=len(train_dataset.classes),
-                                train_last_layer_only=TRAIN_LAST_LAYER_ONLY, epochs=epochs, learning_rate=learning_rate)
+        model, final_loss = fine_tune_model(model, train_loader, device, num_classes=len(train_dataset.classes), train_last_layer_only=TRAIN_LAST_LAYER_ONLY,epochs=epochs, learning_rate=learning_rate)
+
     else:
         model = build_googlenet_extractor(device)
+        final_loss = None
 
 
     # Extract features
@@ -251,22 +269,26 @@ if __name__ == '__main__':
         json.dump(results, f, indent=2)
     
     total_time = time.time() - start_time
-    print(f"⏱️ Total runtime: {total_time:.2f} seconds")
+    print(f"Total runtime: {total_time:.2f} seconds")
 
-    print(f"✅ Submission saved to: {output_file}")
+    print(f"Submission saved to: {output_file}")
 
-    print("[📈] Calculating Top-K accuracy...")
+    print("Calculating Top-K accuracy...")
     topk_acc = calculate_top_k_accuracy(results)
 
     total_time = time.time() - start_time
-    print(f"⏱ Total runtime: {total_time:.2f} seconds")
+    print(f"Total runtime: {total_time:.2f} seconds")
 
     num_classes = len(train_dataset.classes) if FINE_TUNE else None
     save_metrics_json(
-        model_name="googlenet",
-        top_k_accuracy=topk_acc,
-        batch_size=batch_size,
-        is_finetuned=FINE_TUNE,
-        num_classes=num_classes,
-        runtime=total_time
-    )
+    model_name="googlenet",
+    top_k_accuracy=topk_acc,
+    batch_size=batch_size,
+    is_finetuned=FINE_TUNE,
+    num_classes=num_classes,
+    runtime=total_time,
+    loss_function="CrossEntropyLoss" if FINE_TUNE else "None",
+    num_epochs=epochs if FINE_TUNE else None,
+    final_loss=final_loss
+)
+
