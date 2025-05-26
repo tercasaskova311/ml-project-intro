@@ -43,7 +43,7 @@ for key, runs in groups.items():
     losses = [r["final_train_loss"] for r in runs]
     runtimes = [r["runtime_seconds"] for r in runs]
 
-    print(f"🔹 Model: {model_name}, Batch: {batch_size}, Fine-tuned: {is_finetuned}, "
+    print(f"Model: {model_name}, Batch: {batch_size}, Fine-tuned: {is_finetuned}, "
           f"Classes: {num_classes}, Epochs: {num_epochs}, Pooling: {pooling_type}")
     print(f"   • Runs: {len(runs)}")
     print(f"   • Avg Accuracy:      {np.mean(accs):.4f}")

@@ -50,7 +50,6 @@ def initialize_model(resnet_version=resnet_version, pretrained=True, feature_ext
         for param in model.parameters():
             param.requires_grad = False
         model.fc = nn.Identity()
-
     return model.to(device)
 
 
@@ -171,26 +170,13 @@ def denormalize(img_tensor):
     return (img_tensor * std + mean).clamp(0, 1)
 
 
-# Precompute true indices once
-true_indices = []
-for q_name in query_dataset.image_files:
-    try:
-        idx = gallery_dataset.image_files.index(q_name)
-        true_indices.append(idx)
-    except ValueError:
-        print(f"[WARNING] Query image {q_name} not found in gallery. Assigning -1")
-        true_indices.append(-1)  # or handle differently
-
-
-def calculate_accuracy(similarities, true_indices, k):
+def calculate_accuracy (k):
     correct = 0
     for i, query_sim in enumerate(similarities):
         top_k_indices = np.argsort(query_sim)[-k:][::-1]  # Top k indices by similarity
         if true_indices[i] in top_k_indices:
             correct += 1
     return correct / len(similarities)
-
-
 
 
 def save_metrics_json(
@@ -235,6 +221,7 @@ start_time = time.time()
 # 1. Initialize model
 resnet = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
 model = resnet
+
 # 2. Optional fine-tuning
 if fine_tune:
     num_classes = len(train_dataset.classes)
@@ -249,24 +236,19 @@ else:
 query_features = extract_features(model, query_loader)
 gallery_features = extract_features(model, gallery_loader)
 
-# 4. Compute similarities and top-k indices
-similarities = calculate_similarity(query_features, gallery_features)
 
-# Define I (top-k indices for each query)
-I = np.argsort(similarities, axis=1)[:, -k:][:, ::-1]
-
-# 5. Get image paths
+# 4. Get image paths
 query_paths = [os.path.join(test_query_dir, name) for name in query_dataset.image_files]
 gallery_paths = [os.path.join(test_gallery_dir, name) for name in gallery_dataset.image_files]
 
-# 6. Build submission format
+# 5. Build submission format
 submission = {}
 for qi, qpath in enumerate(query_paths):
     qname = os.path.basename(qpath)
     retrieved = [os.path.basename(gallery_paths[i]) for i in I[qi]]
     submission[qname] = retrieved
 
-# 7. Write JSON submission
+# 6. Write JSON submission
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
 sub_dir = os.path.join(project_root, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
@@ -275,8 +257,8 @@ with open(out_path, 'w') as f:
     json.dump(submission, f, indent=2)
 print(f"[DEBUG] Submission saved to: {out_path}")
 
-# 8. Evaluate accuracy and print
-top_k_acc = calculate_accuracy(similarities, true_indices=true_indices, k=k)
+# 7. Evaluate accuracy and print
+top_k_acc = calculate_accuracy( k=k)
 print("top_k_acc =", top_k_acc)
 
 
