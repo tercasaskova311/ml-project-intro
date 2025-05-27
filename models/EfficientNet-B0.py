@@ -4,7 +4,7 @@ import torch
 import torchvision.transforms as transforms
 from torchvision.datasets import ImageFolder
 from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from PIL import Image
 from tqdm import tqdm
 from sklearn.metrics.pairwise import cosine_similarity
@@ -16,7 +16,7 @@ from datetime import datetime
 K = 10
 FINE_TUNE = True
 USE_GEM = False
-batch_size = 32
+batch_size = 64
 epochs = 5
 lr = 1e-4
 
@@ -74,7 +74,7 @@ def load_model_GEM(num_classes=None, fine_tune=False):
     return EfficientNetWithGeM(num_classes=num_classes, fine_tune=fine_tune).to(DEVICE)
 
 # ----- Dataset -----
-class ImagePathDataset(Dataset):
+class ImagePathDataset(torch.utils.data.Dataset):
     def __init__(self, folder_path, transform=None):
         self.img_paths = [os.path.join(folder_path, fname) for fname in os.listdir(folder_path)
                           if fname.lower().endswith(('.jpg', '.png'))]
@@ -108,16 +108,16 @@ def extract_features(model, dataloader):
 def fine_tune_model(model, train_loader, num_epochs=5, lr=1e-4):
     model.train()
     optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
-    loss_fn = torch.nn.MSELoss()
+    loss_fn = torch.nn.CrossEntropyLoss()
     final_loss = 0.0
 
     for epoch in range(num_epochs):
         epoch_loss = 0.0
-        for imgs, fnames in tqdm(train_loader):
+        for imgs, labels in tqdm(train_loader):
             imgs = imgs.to(DEVICE)
-            targets = model(imgs).detach()  # Dummy target (self-supervised)
+            labels = labels.to(DEVICE)
             preds = model(imgs)
-            loss = loss_fn(preds, targets)
+            loss = loss_fn(preds, labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -152,7 +152,7 @@ def calculate_top_k_accuracy(results, train_lookup, k=10):
 
 # ----- Metrics Saver -----
 def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
-                      num_classes=None, runtime=None, loss_function="MSELoss",
+                      num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None, pooling_type=None):
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     results_dir = os.path.join(project_root, "results")
@@ -194,10 +194,11 @@ if __name__ == "__main__":
             if img_name.lower().endswith(('.jpg', '.png')):
                 TRAIN_LOOKUP[img_name] = class_name
 
-    model = load_model_GEM() if USE_GEM else load_model()
+    num_classes = len(os.listdir(train_root))
+    model = load_model_GEM(num_classes=num_classes, fine_tune=FINE_TUNE) if USE_GEM else load_model(num_classes=num_classes, fine_tune=FINE_TUNE)
 
     if FINE_TUNE:
-        train_dataset = ImagePathDataset(train_root, transform)
+        train_dataset = ImageFolder(root=train_root, transform=transform)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         final_loss = fine_tune_model(model, train_loader, num_epochs=epochs, lr=lr)
     else:
@@ -233,9 +234,9 @@ if __name__ == "__main__":
         top_k_accuracy=topk_acc,
         batch_size=batch_size,
         is_finetuned=FINE_TUNE,
-        num_classes=None,
+        num_classes=num_classes,
         runtime=total_time,
-        loss_function="NotApplicable" if not FINE_TUNE else "MSELoss",
+        loss_function="CrossEntropyLoss",
         num_epochs=epochs if FINE_TUNE else 0,
         final_loss=final_loss,
         pooling_type="GeM" if USE_GEM else "GAP"

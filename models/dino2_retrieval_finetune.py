@@ -15,8 +15,8 @@ import torch.nn as nn
 
 # ---------------- CONFIGURATION ----------------
 K = 10
-EPOCHS = 4
-BATCH_SIZE = 64
+EPOCHS = 5
+BATCH_SIZE = 32
 LR = 1e-5
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
