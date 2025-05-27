@@ -37,18 +37,35 @@ else:
     for param in model.parameters():
         param.requires_grad = True
 
+# Classification head
+class ClipClassifier(torch.nn.Module):
+    def __init__(self, clip_model, num_classes):
+        super().__init__()
+        self.clip = clip_model
+        self.fc = torch.nn.Linear(clip_model.visual.output_dim, num_classes)
+
+    def forward(self, x):
+        with torch.no_grad():
+            x = self.clip.encode_image(x).float()  # Cast to float to match Linear dtype
+        x = x / x.norm(dim=-1, keepdim=True)
+        return self.fc(x)
+
 # ---------------- DATASET ----------------
-class ImageTextDataset(Dataset):
+class ImageFolderDataset(Dataset):
     def __init__(self, root_folder, transform):
         self.transform = transform
         self.img_paths = []
         self.labels = []
-        for label_name in os.listdir(root_folder):
-            label_path = os.path.join(root_folder, label_name)
-            if os.path.isdir(label_path):
-                for img_file in os.listdir(label_path):
-                    self.img_paths.append(os.path.join(label_path, img_file))
-                    self.labels.append(label_name)
+        self.class_to_idx = {}
+        self.idx_to_class = {}
+        for idx, class_name in enumerate(sorted(os.listdir(root_folder))):
+            class_path = os.path.join(root_folder, class_name)
+            if os.path.isdir(class_path):
+                self.class_to_idx[class_name] = idx
+                self.idx_to_class[idx] = class_name
+                for img_file in os.listdir(class_path):
+                    self.img_paths.append(os.path.join(class_path, img_file))
+                    self.labels.append(idx)
 
     def __len__(self):
         return len(self.img_paths)
@@ -64,20 +81,17 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.CrossEntropyLoss()
-    final_loss = None
+    final_loss = 0.0
     for epoch in range(epochs):
         running_loss = 0.0
         for images, labels, _ in train_loader:
             images = images.to(device)
-            texts = clip.tokenize(labels).to(device)
-            image_features = model.encode_image(images)
-            text_features = model.encode_text(texts)
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-            logits_per_image = image_features @ text_features.t()
-            logits_per_text = text_features @ image_features.t()
-            ground_truth = torch.arange(len(images), device=device)
-            loss = (loss_fn(logits_per_image, ground_truth) + loss_fn(logits_per_text, ground_truth)) / 2
+            labels = labels.to(device)
+            outputs = model(images)
+            loss = loss_fn(outputs, labels)
+            if torch.isnan(loss):
+                print("⚠️ Loss is NaN, skipping batch")
+                continue
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -91,7 +105,7 @@ def encode_images(image_folder, model, preprocess):
     images = [preprocess(Image.open(p).convert("RGB")) for p in image_paths]
     images = torch.stack(images).to(device)
     with torch.no_grad():
-        features = model.encode_image(images)
+        features = model.encode_image(images).float()
         features /= features.norm(dim=-1, keepdim=True)
     return features, image_paths
 
@@ -105,22 +119,16 @@ def retrieve(query_features, gallery_features, query_paths, gallery_paths, k):
         results[query_filename] = retrieved_filenames
     return results
 
-def extract_class(filename, train_lookup):
-    if "_" in filename:
-        parts = filename.split("_")
-        if len(parts) >= 2 and not parts[0].isdigit():
-            return "_".join(parts[:-1])
-    return train_lookup.get(os.path.basename(filename), "unknown")
+def extract_class(filename, *_):
+    return filename.split('_')[0]
 
-def calculate_top_k_accuracy(query_paths, retrievals, train_lookup, k=10):
+def calculate_top_k_accuracy(query_paths, retrievals, *_ , k=10):
     correct = 0
     total = 0
     for qname in query_paths:
         qfile = os.path.basename(qname)
-        q_class = extract_class(qfile, train_lookup)
-        if q_class == "unknown":
-            continue
-        retrieved_classes = [extract_class(name, train_lookup) for name in retrievals[qfile]]
+        q_class = extract_class(qfile)
+        retrieved_classes = [extract_class(name) for name in retrievals[qfile]]
         if q_class in retrieved_classes:
             correct += 1
         total += 1
@@ -128,26 +136,6 @@ def calculate_top_k_accuracy(query_paths, retrievals, train_lookup, k=10):
     print(f"Top-{k} Accuracy (valid queries only): {acc:.4f}")
     return acc
 
-def visualize_retrieval(query_paths, retrieval_results, k=5):
-    for query_path in query_paths:
-        qfile = os.path.basename(query_path)
-        if qfile not in retrieval_results:
-            continue
-        plt.figure(figsize=(18, 4))
-        plt.subplot(1, k + 1, 1)
-        plt.title("Query")
-        plt.axis("off")
-        plt.imshow(Image.open(query_path))
-        for j, img_name in enumerate(retrieval_results[qfile][:k]):
-            gallery_img_path = os.path.join(GALLERY_DIR, img_name)
-            if not os.path.exists(gallery_img_path):
-                continue
-            plt.subplot(1, k + 1, j + 2)
-            plt.title(f"Rank {j + 1}")
-            plt.axis("off")
-            plt.imshow(Image.open(gallery_img_path))
-        plt.tight_layout()
-        plt.show()
 
 def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
@@ -183,15 +171,16 @@ query_dir = os.path.join(DATA_DIR, "test", "query")
 gallery_dir = os.path.join(DATA_DIR, "test", "gallery")
 GALLERY_DIR = gallery_dir
 
-train_dataset = ImageTextDataset(training_dir, transform=preprocess)
+train_dataset = ImageFolderDataset(training_dir, transform=preprocess)
 train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
-if FINE_TUNE:
-    final_loss = fine_tune_clip(train_loader, model)
-else:
-    final_loss = None
 
-gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
-query_features, query_paths = encode_images(query_dir, model, preprocess)
+classifier = ClipClassifier(model, num_classes=len(train_dataset.class_to_idx)).to(device)
+final_loss = fine_tune_clip(train_loader, classifier) if FINE_TUNE else None
+
+with torch.no_grad():
+    gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
+    query_features, query_paths = encode_images(query_dir, model, preprocess)
+
 retrieval_results = retrieve(query_features, gallery_features, query_paths, gallery_paths, k)
 
 TRAIN_LOOKUP = {}
@@ -203,11 +192,7 @@ for class_name in os.listdir(training_dir):
         if img_name.lower().endswith(('.jpg', '.png')):
             TRAIN_LOOKUP[img_name] = class_name
 
-submission = {}
-for qname in query_paths:
-    qfile = os.path.basename(qname)
-    submission[qfile] = retrieval_results[qfile]
-
+submission = {os.path.basename(q): retrieval_results[os.path.basename(q)] for q in query_paths}
 sub_dir = os.path.join(BASE_DIR, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
 sub_path = os.path.join(sub_dir, "sub_clip.json")
@@ -217,15 +202,15 @@ print(f"Submission saved to: {os.path.abspath(sub_path)}")
 
 top_k_acc = calculate_top_k_accuracy(query_paths, retrieval_results, TRAIN_LOOKUP, k=k)
 runtime = time.time() - start_time
+
 save_metrics_json(
     model_name="clip-vit-b32",
     top_k_accuracy=top_k_acc,
     batch_size=batch_size,
     is_finetuned=FINE_TUNE,
-    num_classes=None,
+    num_classes=len(train_dataset.class_to_idx),
     runtime=runtime,
     loss_function="CrossEntropyLoss",
     num_epochs=epochs,
     final_loss=final_loss
 )
-visualize_retrieval(query_paths, retrieval_results, k)
