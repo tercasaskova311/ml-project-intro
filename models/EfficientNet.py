@@ -1,31 +1,48 @@
+# script with EfficientNet model definition
+
 import os
 import json
+import time
 import torch
-import torchvision.transforms as transforms
-from torchvision.datasets import ImageFolder
-from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
-from torch.utils.data import DataLoader
+import timm
+import numpy as np
 from PIL import Image
 from tqdm import tqdm
-from sklearn.metrics.pairwise import cosine_similarity
-import numpy as np
-import time
 from datetime import datetime
+from sklearn.metrics.pairwise import cosine_similarity
+from torch.utils.data import DataLoader, Dataset
+import torchvision.transforms as transforms
+from torchvision.datasets import ImageFolder
 
 # ----- Config -----
+
 K = 10
 FINE_TUNE = True
 USE_GEM = False
-batch_size = 64
+batch_size = 32
 epochs = 10
 lr = 1e-4
+MODEL_VARIANT = 'b3'  # choose between 'b0' e 'b3'
+# EfficientNet-B3 richiede immagini 300x300, quindi consuma più memoria rispetto a B0 (224x224) -- quindi meglio batch size 32 invece che size 64
+
+
+MODEL_NAME_MAP = {
+    'b0': 'efficientnet_b0',
+    'b3': 'efficientnet_b3'
+}
+INPUT_SIZE_MAP = {
+    'b0': (224, 224),
+    'b3': (300, 300)
+}
+MODEL_NAME = MODEL_NAME_MAP[MODEL_VARIANT]
+IMAGE_SIZE = INPUT_SIZE_MAP[MODEL_VARIANT]
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ----- Image preprocessing -----
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize(IMAGE_SIZE),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
@@ -43,13 +60,13 @@ class GeM(torch.nn.Module):
 
 # ----- EfficientNet with GeM -----
 class EfficientNetWithGeM(torch.nn.Module):
-    def __init__(self, num_classes=None, fine_tune=False):
+    def __init__(self, model_name, num_classes=None, fine_tune=False):
         super().__init__()
-        base = efficientnet_b0(weights=EfficientNet_B0_Weights.DEFAULT)
-        self.features = base.features
+        base = timm.create_model(model_name, pretrained=True, num_classes=0)
+        self.features = base.forward_features
         self.gem_pool = GeM()
         self.flatten = torch.nn.Flatten()
-        self.out_dim = base.classifier[1].in_features
+        self.out_dim = base.num_features
         self.classifier = None
         if fine_tune and num_classes is not None:
             self.classifier = torch.nn.Linear(self.out_dim, num_classes)
@@ -64,17 +81,17 @@ class EfficientNetWithGeM(torch.nn.Module):
 
 # ----- Model Loaders -----
 def load_model(num_classes=None, fine_tune=False):
-    base_model = efficientnet_b0(weights=EfficientNet_B0_Weights.DEFAULT)
+    model = timm.create_model(MODEL_NAME, pretrained=True)
     if fine_tune and num_classes is not None:
-        in_features = base_model.classifier[1].in_features
-        base_model.classifier[1] = torch.nn.Linear(in_features, num_classes)
-    return base_model.to(DEVICE)
+        in_features = model.get_classifier().in_features
+        model.classifier = torch.nn.Linear(in_features, num_classes)
+    return model.to(DEVICE)
 
 def load_model_GEM(num_classes=None, fine_tune=False):
-    return EfficientNetWithGeM(num_classes=num_classes, fine_tune=fine_tune).to(DEVICE)
+    return EfficientNetWithGeM(MODEL_NAME, num_classes=num_classes, fine_tune=fine_tune).to(DEVICE)
 
 # ----- Dataset -----
-class ImagePathDataset(torch.utils.data.Dataset):
+class ImagePathDataset(Dataset):
     def __init__(self, folder_path, transform=None):
         self.img_paths = [os.path.join(folder_path, fname) for fname in os.listdir(folder_path)
                           if fname.lower().endswith(('.jpg', '.png'))]
@@ -221,7 +238,7 @@ if __name__ == "__main__":
 
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "submissions"))
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, "sub_efficientnet.json")
+    output_path = os.path.join(output_dir, f"sub_{MODEL_NAME}.json")
     with open(output_path, "w") as f:
         json.dump(result, f, indent=2)
     print(f"Submission saved to: {output_path}")
@@ -230,7 +247,7 @@ if __name__ == "__main__":
     total_time = time.time() - start_time
 
     save_metrics_json(
-        model_name="efficientnet_b0",
+        model_name=MODEL_NAME,
         top_k_accuracy=topk_acc,
         batch_size=batch_size,
         is_finetuned=FINE_TUNE,

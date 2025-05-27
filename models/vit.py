@@ -17,7 +17,7 @@ K = 10
 FINE_TUNE = True
 batch_size = 32
 epochs = 5
-lr = 1e-4
+lr = 1e-5
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -13,7 +13,6 @@ from datetime import datetime
 from collections import defaultdict
 
 # CONFIG
-# gap by default
 k = 10
 batch_size = 32
 image_size = (224, 224)
@@ -23,7 +22,22 @@ FINE_TUNE = True
 TRAIN_LAST_LAYER_ONLY = True
 epochs = 5
 learning_rate = 1e-5
+USE_GEM_POOLING = True  # 👈 Toggle this to True to use GeM instead of GAP
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADDITION: GeM class
+class GeM(torch.nn.Module):
+    def __init__(self, p=3.0, eps=1e-6):
+        super().__init__()
+        self.p = torch.nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
+
+    def forward(self, x):
+        return F.avg_pool2d(x.clamp(min=self.eps).pow(self.p), 
+                            (x.size(-2), x.size(-1))).pow(1./self.p)
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Paths
 cwd = os.getcwd()
@@ -80,6 +94,10 @@ def build_googlenet_extractor(device):
     model = torchvision.models.googlenet(weights=weights, aux_logits=True)
     model.aux1 = torch.nn.Identity()
     model.aux2 = torch.nn.Identity()
+    if USE_GEM_POOLING:
+        model.avgpool = GeM()
+    else:
+        model.avgpool = torch.nn.AdaptiveAvgPool2d((1, 1))
     model.fc = torch.nn.Identity()
     return model.to(device).eval()
 
@@ -173,7 +191,7 @@ def calculate_top_k_accuracy(results):
             correct += 1
 
     acc = correct / total
-    print(f"🌟 Top-{k} Accuracy: {acc:.4f}")
+    print(f" Top-{k} Accuracy: {acc:.4f}")
     return acc
 
 # Metrics saving
@@ -196,7 +214,7 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_
         "loss_function": loss_function,
         "num_epochs": num_epochs,
         "final_train_loss": round(final_loss, 4) if final_loss is not None else None,
-        "pooling_type": pooling_type
+        "pooling_type": "GeM" if USE_GEM_POOLING else "GAP"
     }
 
     with open(out_path, "w") as f:
@@ -223,6 +241,10 @@ if __name__ == '__main__':
         model = torchvision.models.googlenet(weights=torchvision.models.GoogLeNet_Weights.DEFAULT, aux_logits=True)
         model.aux1 = torch.nn.Identity()
         model.aux2 = torch.nn.Identity()
+        if USE_GEM_POOLING:
+            model.avgpool = GeM()
+        else:
+            model.avgpool = torch.nn.AdaptiveAvgPool2d((1, 1))
 
         model, final_loss = fine_tune_model(model, train_loader, device, num_classes=len(train_dataset.classes), train_last_layer_only=TRAIN_LAST_LAYER_ONLY, epochs=epochs, learning_rate=learning_rate)
     else:
@@ -241,10 +263,10 @@ if __name__ == '__main__':
         json.dump(results, f, indent=2)
 
     total_time = time.time() - start_time
-    print(f"⏱️ Total runtime: {total_time:.2f} seconds")
-    print(f"✅ Submission saved to: {output_file}")
+    print(f" Total runtime: {total_time:.2f} seconds")
+    print(f" Submission saved to: {output_file}")
 
-    print("[📈] Calculating Top-K accuracy...")
+    print("[] Calculating Top-K accuracy...")
     topk_acc = calculate_top_k_accuracy(results)
 
     total_time = time.time() - start_time
