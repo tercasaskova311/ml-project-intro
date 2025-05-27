@@ -14,8 +14,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # ---------------- CONFIGURATION ----------------
 k = 10
-batch_size = 64
-FINE_TUNE = False
+batch_size = 32
+FINE_TUNE = True
 TRAIN_LAST_LAYER_ONLY = True
 epochs = 5
 lr = 1e-5

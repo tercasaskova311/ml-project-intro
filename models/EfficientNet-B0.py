@@ -14,10 +14,11 @@ from datetime import datetime
 
 # ----- Config -----
 K = 10
-FINE_TUNE = False
+FINE_TUNE = True
 USE_GEM = False
-batch_size = 64
+batch_size = 32
 epochs = 5
+lr = 1e-4
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -103,7 +104,30 @@ def extract_features(model, dataloader):
         filenames.extend(fnames)
     return np.vstack(features), filenames
 
-# ----- Accuracy Calculation (safe version) -----
+# ----- Fine-tuning Function -----
+def fine_tune_model(model, train_loader, num_epochs=5, lr=1e-4):
+    model.train()
+    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
+    loss_fn = torch.nn.MSELoss()
+    final_loss = 0.0
+
+    for epoch in range(num_epochs):
+        epoch_loss = 0.0
+        for imgs, fnames in tqdm(train_loader):
+            imgs = imgs.to(DEVICE)
+            targets = model(imgs).detach()  # Dummy target (self-supervised)
+            preds = model(imgs)
+            loss = loss_fn(preds, targets)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            epoch_loss += loss.item()
+        final_loss = epoch_loss / len(train_loader)
+        print(f"Epoch {epoch+1}/{num_epochs} - Loss: {final_loss:.4f}")
+
+    return final_loss
+
+# ----- Accuracy Calculation -----
 def extract_class(filename, train_lookup):
     if "_" in filename:
         parts = filename.split("_")
@@ -160,7 +184,6 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
 if __name__ == "__main__":
     start_time = time.time()
 
-    # Build TRAIN_LOOKUP
     TRAIN_LOOKUP = {}
     train_root = os.path.join(DATA_DIR, 'training')
     for class_name in os.listdir(train_root):
@@ -171,10 +194,15 @@ if __name__ == "__main__":
             if img_name.lower().endswith(('.jpg', '.png')):
                 TRAIN_LOOKUP[img_name] = class_name
 
-    # Load model
     model = load_model_GEM() if USE_GEM else load_model()
 
-    # Load data
+    if FINE_TUNE:
+        train_dataset = ImagePathDataset(train_root, transform)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        final_loss = fine_tune_model(model, train_loader, num_epochs=epochs, lr=lr)
+    else:
+        final_loss = None
+
     gallery_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/gallery"), transform)
     query_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/query"), transform)
     gallery_loader = DataLoader(gallery_dataset, batch_size)
@@ -183,7 +211,6 @@ if __name__ == "__main__":
     gallery_feats, gallery_names = extract_features(model, gallery_loader)
     query_feats, query_names = extract_features(model, query_loader)
 
-    # Similarity and JSON
     result = {}
     sim_matrix = cosine_similarity(query_feats, gallery_feats)
     for i, qname in enumerate(query_names):
@@ -199,9 +226,7 @@ if __name__ == "__main__":
     print(f"Submission saved to: {output_path}")
 
     topk_acc = calculate_top_k_accuracy(result, TRAIN_LOOKUP, k=K)
-
     total_time = time.time() - start_time
-    print(f"Total runtime: {total_time:.2f} seconds")
 
     save_metrics_json(
         model_name="efficientnet_b0",
@@ -212,6 +237,6 @@ if __name__ == "__main__":
         runtime=total_time,
         loss_function="NotApplicable" if not FINE_TUNE else "MSELoss",
         num_epochs=epochs if FINE_TUNE else 0,
-        final_loss=None,
+        final_loss=final_loss,
         pooling_type="GeM" if USE_GEM else "GAP"
     )
