@@ -1,0 +1,13 @@
+{
+  "model_name": "resnet101",
+  "run_id": "20250527-0937",
+  "top_k": 10,
+  "top_k_accuracy": 0.979,
+  "batch_size": 32,
+  "is_finetuned": false,
+  "num_classes": 90,
+  "runtime_seconds": 20.75,
+  "loss_function": "CrossEntropyLoss",
+  "num_epochs": 10,
+  "final_train_loss": null
+}

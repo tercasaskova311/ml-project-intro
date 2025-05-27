@@ -19,11 +19,11 @@ train_dir = os.path.join(data_dir, 'training')
 test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
-fine_tune = False
-resnet_version = 'resnet34'
+fine_tune = True
+resnet_version = 'resnet50' # Change to 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'...
 k = 10
-batch_size = 64
-num_epochs = 10
+batch_size = 32
+num_epochs = 5
 learning_rate = 1e-5
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

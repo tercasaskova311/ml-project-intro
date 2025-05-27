@@ -14,9 +14,10 @@ from timm import create_model
 
 # ----- Config -----
 K = 10
-FINE_TUNE = False
-batch_size = 64
+FINE_TUNE = True
+batch_size = 32
 epochs = 5
+lr = 1e-4
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -28,23 +29,24 @@ transform = transforms.Compose([
 ])
 
 def load_vit_model(num_classes=None, fine_tune=False):
-    model = create_model("vit_base_patch16_224", pretrained=True, num_classes=0)
+    model = create_model("vit_base_patch16_224", pretrained=True)
     if fine_tune and num_classes is not None:
-        model.head = torch.nn.Linear(model.num_features, num_classes)
+        model.head = torch.nn.Linear(model.head.in_features, num_classes)
+    else:
+        model.head = torch.nn.Identity()
     return model.to(DEVICE)
 
-def finetune_model(model, dataloader, epochs, lr=1e-4):
+def finetune_model(model, dataloader, epochs, lr):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    criterion = torch.nn.MSELoss()
+    criterion = torch.nn.CrossEntropyLoss()
     final_loss = None
     for epoch in range(epochs):
         running_loss = 0.0
-        for img1, img2 in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}"):
-            img1, img2 = img1.to(DEVICE), img2.to(DEVICE)
-            feat1 = model(img1)
-            feat2 = model(img2)
-            loss = criterion(feat1, feat2)
+        for images, labels in tqdm(dataloader, desc=f"Epoch {epoch+1}/{epochs}"):
+            images, labels = images.to(DEVICE), labels.to(DEVICE)
+            outputs = model(images)
+            loss = criterion(outputs, labels)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -70,42 +72,30 @@ class ImagePathDataset(Dataset):
             image = self.transform(image)
         return image, os.path.basename(img_path)
 
-class AugmentedImageFolder(ImageFolder):
-    def __getitem__(self, index):
-        path, _ = self.samples[index]
-        image = Image.open(path).convert("RGB")
-        if self.transform:
-            img1 = self.transform(image)
-            img2 = self.transform(image)
-        return img1, img2
-
 @torch.no_grad()
 def extract_features(model, dataloader):
     features = []
     filenames = []
     for imgs, fnames in tqdm(dataloader):
         imgs = imgs.to(DEVICE)
-        feats = model(imgs)
+        feats = model.forward_features(imgs)
+        if feats.ndim > 2:
+            feats = feats.mean(dim=tuple(range(2, feats.ndim)))
         feats = feats.cpu().numpy()
         features.append(feats)
         filenames.extend(fnames)
     return np.vstack(features), filenames
 
-def extract_class(filename, train_lookup):
-    if "_" in filename:
-        parts = filename.split("_")
-        if len(parts) >= 2 and not parts[0].isdigit():
-            return "_".join(parts[:-1])
-    return train_lookup.get(os.path.basename(filename), "unknown")
 
-def calculate_top_k_accuracy(query_paths, retrievals, train_lookup, k=10):
+def extract_class(filename, *_):
+    return filename.split('_')[0]
+
+def calculate_top_k_accuracy(query_paths, retrievals, *_ , k=10):
     correct = 0
     total = 0
     for qname in query_paths:
-        q_class = extract_class(qname, train_lookup)
-        if q_class == "unknown":
-            continue
-        retrieved_classes = [extract_class(name, train_lookup) for name in retrievals[qname]]
+        q_class = extract_class(qname)
+        retrieved_classes = [extract_class(name) for name in retrievals[qname]]
         if q_class in retrieved_classes:
             correct += 1
         total += 1
@@ -140,12 +130,14 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_
 
 def main():
     start_time = time.time()
-    model = load_vit_model()
+
     if FINE_TUNE:
-        train_dataset = AugmentedImageFolder(os.path.join(DATA_DIR, "training"), transform)
+        train_dataset = ImageFolder(os.path.join(DATA_DIR, "training"), transform)
         train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
-        final_loss = finetune_model(model, train_loader, epochs, lr=1e-4)
+        model = load_vit_model(num_classes=len(train_dataset.classes), fine_tune=True)
+        final_loss = finetune_model(model, train_loader, epochs, lr)
     else:
+        model = load_vit_model()
         final_loss = None
 
     gallery_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/gallery"), transform)
@@ -163,9 +155,7 @@ def main():
         samples = [gallery_names[idx] for idx in topk_idx]
         result[qname] = samples
 
-    submission = {}
-    for qname in query_names:
-        submission[qname] = result[qname]
+    submission = {qname: result[qname] for qname in query_names}
 
     output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "submissions")
     os.makedirs(output_dir, exist_ok=True)
@@ -174,21 +164,11 @@ def main():
         json.dump(submission, f, indent=2)
     print(f"Submission saved to: {output_path}")
 
-    TRAIN_LOOKUP = {}
-    train_root = os.path.join(DATA_DIR, "training")
-    for class_name in os.listdir(train_root):
-        class_path = os.path.join(train_root, class_name)
-        if not os.path.isdir(class_path):
-            continue
-        for fname in os.listdir(class_path):
-            if fname.lower().endswith(('.jpg', '.png')):
-                TRAIN_LOOKUP[fname] = class_name
-
-    topk_acc = calculate_top_k_accuracy(query_names, result, TRAIN_LOOKUP, k=K)
+    topk_acc = calculate_top_k_accuracy(query_names, result)
     total_time = time.time() - start_time
     num_classes = len(train_dataset.classes) if FINE_TUNE else None
     save_metrics_json("vit_base_patch16_224", topk_acc, batch_size, FINE_TUNE, num_classes, total_time,
-                      "MSELoss" if FINE_TUNE else "NotApplicable", epochs if FINE_TUNE else 0, final_loss)
+                      "CrossEntropyLoss" if FINE_TUNE else "NotApplicable", epochs if FINE_TUNE else 0, final_loss)
 
 if __name__ == "__main__":
     main()
