@@ -23,8 +23,8 @@ test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 
 fine_tune = False  # Set to False to skip training and only extract features
-resnet_version = 'resnet34'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
-k=10
+resnet_version = 'resnet50'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
+k=5
 batch_size = 16
 num_epochs = 5
 learning_rate = 0.001
