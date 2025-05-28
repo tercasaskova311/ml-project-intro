@@ -221,3 +221,5 @@ save_metrics_json(
     num_epochs=num_epochs,
     final_loss=final_loss
 )
+
+# submission is the dictionary that we have to give to result function
