@@ -5,19 +5,20 @@ import torch
 import clip
 import numpy as np
 import matplotlib.pyplot as plt
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from tqdm import tqdm
 from datetime import datetime
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from sklearn.metrics.pairwise import cosine_similarity
+import requests
 
 # ---------------- CONFIGURATION ----------------
 k = 10
 batch_size = 32
-FINE_TUNE = False
+FINE_TUNE = True
 TRAIN_LAST_LAYER_ONLY = True
-epochs = 5
+epochs = 10
 lr = 1e-5
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -37,7 +38,6 @@ else:
     for param in model.parameters():
         param.requires_grad = True
 
-# Classification head
 class ClipClassifier(torch.nn.Module):
     def __init__(self, clip_model, num_classes):
         super().__init__()
@@ -46,7 +46,7 @@ class ClipClassifier(torch.nn.Module):
 
     def forward(self, x):
         with torch.no_grad():
-            x = self.clip.encode_image(x).float()  # Cast to float to match Linear dtype
+            x = self.clip.encode_image(x).float()
         x = x / x.norm(dim=-1, keepdim=True)
         return self.fc(x)
 
@@ -64,8 +64,9 @@ class ImageFolderDataset(Dataset):
                 self.class_to_idx[class_name] = idx
                 self.idx_to_class[idx] = class_name
                 for img_file in os.listdir(class_path):
-                    self.img_paths.append(os.path.join(class_path, img_file))
-                    self.labels.append(idx)
+                    if img_file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif')):  # FIX
+                        self.img_paths.append(os.path.join(class_path, img_file))
+                        self.labels.append(idx)
 
     def __len__(self):
         return len(self.img_paths)
@@ -101,13 +102,25 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
     return final_loss
 
 def encode_images(image_folder, model, preprocess):
-    image_paths = sorted([os.path.join(image_folder, f) for f in os.listdir(image_folder)])
-    images = [preprocess(Image.open(p).convert("RGB")) for p in image_paths]
+    image_paths = sorted([
+        os.path.join(image_folder, f)
+        for f in os.listdir(image_folder)
+        if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif'))  # FIX
+    ])
+    images = []
+    valid_paths = []
+    for p in image_paths:
+        try:
+            img = preprocess(Image.open(p).convert("RGB"))
+            images.append(img)
+            valid_paths.append(p)
+        except UnidentifiedImageError:
+            print(f"⚠️ Skipping invalid image file: {p}")
     images = torch.stack(images).to(device)
     with torch.no_grad():
         features = model.encode_image(images).float()
         features /= features.norm(dim=-1, keepdim=True)
-    return features, image_paths
+    return features, valid_paths
 
 def retrieve(query_features, gallery_features, query_paths, gallery_paths, k):
     similarities = query_features @ gallery_features.T
@@ -136,7 +149,6 @@ def calculate_top_k_accuracy(query_paths, retrievals, *_ , k=10):
     print(f"Top-{k} Accuracy (valid queries only): {acc:.4f}")
     return acc
 
-
 def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None):
@@ -161,23 +173,19 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
-    
 
-
-import requests
 def submit(results, groupname="stochastic thr", url="http://65.108.245.177:3001/retrieval/"):
-    res = {}
-    res["groupname"] = groupname
-    res["images"] = results
+    res = {
+        "groupname": groupname,
+        "images": results
+    }
     res = json.dumps(res)
-    # print(res)
     response = requests.post(url, res)
     try:
         result = json.loads(response.text)
         print(f"accuracy is {result['accuracy']}")
     except json.JSONDecodeError:
         print(f"ERROR: {response.text}")
-
 
 # ---------------- MAIN EXECUTION ----------------
 start_time = time.time()
@@ -186,7 +194,6 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 training_dir = os.path.join(DATA_DIR, "training")
 query_dir = os.path.join(DATA_DIR, "test", "query")
 gallery_dir = os.path.join(DATA_DIR, "test", "gallery")
-GALLERY_DIR = gallery_dir
 
 train_dataset = ImageFolderDataset(training_dir, transform=preprocess)
 train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
@@ -217,7 +224,6 @@ with open(sub_path, "w") as f:
     json.dump(submission, f, indent=2)
 print(f"Submission saved to: {os.path.abspath(sub_path)}")
 submit(submission, groupname="Stochastic thr")
-
 
 top_k_acc = calculate_top_k_accuracy(query_paths, retrieval_results, TRAIN_LOOKUP, k=k)
 runtime = time.time() - start_time
