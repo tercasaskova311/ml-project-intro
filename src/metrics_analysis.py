@@ -35,14 +35,14 @@ for filename in os.listdir(RESULTS_DIR):
         groups[key].append(metrics)
 
 # Aggregate and print results
-print("📊 Aggregated Metrics per Model Configuration:\n")
+print(" Aggregated Metrics per Model Configuration:\n")
 for key, runs in groups.items():
     model_name, batch_size, is_finetuned, num_classes, num_epochs, pooling_type = key
     accs = [r["top_k_accuracy"] for r in runs]
     losses = [r["final_train_loss"] for r in runs]
     runtimes = [r["runtime_seconds"] for r in runs]
 
-    print(f"🔹 Model: {model_name}, Batch: {batch_size}, Fine-tuned: {is_finetuned}, "
+    print(f"Model: {model_name}, Batch: {batch_size}, Fine-tuned: {is_finetuned}, "
           f"Classes: {num_classes}, Epochs: {num_epochs}", "Pooling: {pooling_type}")
     print(f"   • Runs: {len(runs)}")
     print(f"   • Avg Accuracy:      {np.mean(accs):.4f}")

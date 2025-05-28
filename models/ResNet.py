@@ -15,14 +15,15 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 from PIL import Image
 
-# Config
+# Config -----------------------------------------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
-data_dir = os.path.join(BASE_DIR, 'data')
+data_dir = os.path.join(BASE_DIR, 'flowers')
 train_dir = os.path.join(data_dir, 'training')
 test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 
+#parameters---------------------------------------
 fine_tune = True  # Set to False to skip training and only extract features
 resnet_version = 'resnet50'  # Change to: 'resnet18', 'resnet34', 'resnet50', or 'resnet101'
 k=10
@@ -36,25 +37,28 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # print(os.listdir(train_dir))  # will list subfolders/classes for training set
 # print(os.listdir(test_query_dir))
 
-
+#itiliaize model and it's weights--------------------------------------------------
 def initialize_model(resnet_version=resnet_version, pretrained=True, feature_extract=True):
-    from torchvision.models import ResNet50_Weights
-
-    # Get the model constructor from torchvision.models
+    # Get the model constructor
     model_fn = getattr(models, resnet_version)
-    
-    # Load with proper weights
-    weights = ResNet50_Weights.DEFAULT if pretrained else None
+
+    # Dynamically fetch the correct weights enum (e.g., ResNet50_Weights)
+    weights_enum_name = resnet_version.capitalize() + "_Weights"
+    weights_enum = getattr(models, weights_enum_name, None)
+
+    # Use DEFAULT weights if available and pretrained is True
+    weights = weights_enum.DEFAULT if pretrained and weights_enum else None
+
     model = model_fn(weights=weights)
 
     if feature_extract:
         for param in model.parameters():
             param.requires_grad = False
         model.fc = nn.Identity()
+
     return model.to(device)
 
-
-
+#class for unlabeled data--------------------------------------------
 class ImageDatasetWithoutLabels(Dataset):
     def __init__(self, image_folder, transform=None):
         self.image_folder = image_folder
@@ -72,7 +76,7 @@ class ImageDatasetWithoutLabels(Dataset):
             image = self.transform(image)
         return image, img_name  # returning image and filename (no label)
 
-
+#images to tensors----------------------------------
 data_transforms = {
     'training': transforms.Compose([
         transforms.Resize((224, 224)),
@@ -86,6 +90,7 @@ data_transforms = {
     ])
 }
 
+#folders set up---------------------------------------------------------
 # For training data (has subfolders/classes)
 train_dataset = datasets.ImageFolder(train_dir, data_transforms['training'])
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -99,6 +104,7 @@ gallery_dataset = ImageDatasetWithoutLabels(test_gallery_dir, data_transforms['t
 gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False)
 
 
+#training a model --------------------------------------------------------
 def train_model(model, dataloader, num_epochs=num_epochs, learning_rate=learning_rate):
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -121,20 +127,28 @@ def train_model(model, dataloader, num_epochs=num_epochs, learning_rate=learning
 
     return final_loss
 
+#finetuning----------------------------- I unfreeze only last layer in each block
+def fine_tune_model(model, num_classes, learning_rate, unfreeze_from="layer4"): 
 
-def fine_tune_model(model, num_classes, learning_rate):
+    # Freeze all layers first
     for param in model.parameters():
-        param.requires_grad = True
-    
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+        param.requires_grad = False
 
-    #for param in model.fc.parameters():
-        #param.requires_grad = False   # unfreeze only new head
-    # Safely get in_features BEFORE replacing the classifier
+    # Unfreeze the final block (e.g., layer4 for ResNet)
+    for name, child in model.named_children():
+        if name == unfreeze_from:
+            for param in child.parameters():
+                param.requires_grad = True
+    # Set optimizer to only update the trainable parameters
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
 
-    num_features = model.fc.in_features if hasattr(model.fc, "in_features") else 2048
+    # Get number of input features to the final layer
+    if hasattr(model.fc, "in_features"):
+        num_features = model.fc.in_features
+    else:
+        raise ValueError("Model must have a .fc layer with in_features")
 
-    # Replace classification head
+    # Replace classifier head
     model.fc = nn.Sequential(
         nn.Linear(num_features, 512),
         nn.ReLU(),
@@ -142,7 +156,7 @@ def fine_tune_model(model, num_classes, learning_rate):
         nn.Linear(512, num_classes)
     ).to(device)
 
-    return model
+    return model, optimizer
 
 
 def extract_features(model, loader):
@@ -181,7 +195,7 @@ def calculate_accuracy(similarities, k):
     print(f"Top-{k} Accuracy: {accuracy:.4f}")
     return accuracy
 
-
+#METRICS--------------------------------------------------------------------
 def save_metrics_json(
     model_name,
     top_k_accuracy,
@@ -219,13 +233,14 @@ def save_metrics_json(
 
     print(f"[DEBUG] Metrics saved to: {os.path.abspath(out_path)}")
 
+#Running the model ---------------------------------------------------
 start_time = time.time()
 
-# 1. Initialize model
+#Initialize model
 resnet = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
 model = resnet
 
-# 2. Optional fine-tuning
+#fine-tuning 
 if fine_tune:
     num_classes = len(train_dataset.classes)
     model = fine_tune_model(model, num_classes=num_classes, learning_rate=learning_rate)
@@ -234,27 +249,26 @@ else:
     model.fc = nn.Identity()
     final_loss = None  # No training, no loss
 
-
-# 3. Extract features
+#Extract features
 query_features = extract_features(model, query_loader)
 gallery_features = extract_features(model, gallery_loader)
 
-# 4. Compute similarities and top-k indices
+#Compute similarities and top-k indices
 similarities = calculate_similarity(query_features, gallery_features)
 I = np.argsort(similarities, axis=1)[:, -k:][:, ::-1]
 
-# 5. Get image paths
+#Get image paths
 query_paths = [os.path.join(test_query_dir, name) for name in query_dataset.image_files]
 gallery_paths = [os.path.join(test_gallery_dir, name) for name in gallery_dataset.image_files]
 
-# 6. Build submission format
+# submission directionary
 submission = {}
 for qi, qpath in enumerate(query_paths):
     qname = os.path.basename(qpath)
     retrieved = [os.path.basename(gallery_paths[i]) for i in I[qi]]
     submission[qname] = retrieved
 
-# 7. Write JSON submission
+#JSON submission
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
 sub_dir = os.path.join(project_root, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
@@ -263,15 +277,11 @@ with open(out_path, 'w') as f:
     json.dump(submission, f, indent=2)
 print(f"[DEBUG] Submission saved to: {out_path}")
 
-# 7. Evaluate accuracy and print
-top_k_acc = calculate_accuracy( k=k)
-print("top_k_acc =", top_k_acc)
 
-
-# 8. Evaluate accuracy
+#Evaluate accuracy
 top_k_acc = calculate_accuracy (similarities, k)
 
-# 9. Save metrics
+#Save metrics
 runtime = time.time() - start_time
 save_metrics_json(
     model_name=resnet_version,
