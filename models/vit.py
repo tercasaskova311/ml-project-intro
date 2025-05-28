@@ -14,7 +14,7 @@ from timm import create_model
 
 # ----- Config -----
 K = 10
-FINE_TUNE = True
+FINE_TUNE = False
 batch_size = 32
 epochs = 5
 lr = 1e-5

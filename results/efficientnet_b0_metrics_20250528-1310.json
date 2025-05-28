@@ -1,0 +1,14 @@
+{
+  "model_name": "efficientnet_b0",
+  "run_id": "20250528-1310",
+  "top_k": 10,
+  "top_k_accuracy": 0.0,
+  "batch_size": 32,
+  "is_finetuned": true,
+  "num_classes": 921,
+  "runtime_seconds": 699.46,
+  "loss_function": "CrossEntropyLoss",
+  "num_epochs": 12,
+  "final_train_loss": 5.1342,
+  "pooling_type": "GeM"
+}

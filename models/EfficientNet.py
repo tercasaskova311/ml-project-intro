@@ -17,7 +17,7 @@ K = 10
 FINE_TUNE = True
 USE_GEM = True
 batch_size = 32
-epochs = 12
+epochs = 17
 lr = 5e-5
 MODEL_VARIANT = 'b0'  # choose between 'b0' and 'b3'
 
@@ -58,7 +58,7 @@ class EfficientNetWithGeM(torch.nn.Module):
     def __init__(self, model_name, num_classes=None, fine_tune=False):
         super().__init__()
         base = timm.create_model(model_name, pretrained=True, num_classes=0)
-        base = base.to(DEVICE)  # move base model to device
+        base = base.to(DEVICE)
         self.features = base.forward_features
         self.gem_pool = GeM().to(DEVICE)
         self.flatten = torch.nn.Flatten().to(DEVICE)
@@ -75,6 +75,12 @@ class EfficientNetWithGeM(torch.nn.Module):
             x = self.classifier(x)
         return x
 
+    def get_embedding(self, x):
+        x = self.features(x)
+        x = self.gem_pool(x)
+        x = self.flatten(x)
+        return x
+
 # ----- Model Loaders -----
 def load_model(num_classes=None, fine_tune=False):
     model = timm.create_model(MODEL_NAME, pretrained=True)
@@ -86,8 +92,6 @@ def load_model(num_classes=None, fine_tune=False):
 def load_model_GEM(num_classes=None, fine_tune=False):
     model = EfficientNetWithGeM(MODEL_NAME, num_classes=num_classes, fine_tune=fine_tune)
     return model
-
-# [Remaining code unchanged]
 
 
 # ----- Dataset -----
