@@ -10,3 +10,6 @@ data_fruit/
 data_old/
 azure-venv/
 data_animals/
+__MACOSX/
+test.zip/
+train.zip/

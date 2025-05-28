@@ -68,25 +68,47 @@ gallery_dataset = ImageDatasetWithoutLabels(test_gallery_dir, transform=data_tra
 gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False)
 
 # ---------------- MODEL ----------------
-def initialize_model(resnet_version, pretrained=True, feature_extract=True):
+#itiliaize model and it's weights--------------------------------------------------
+def initialize_model(resnet_version=resnet_version, pretrained=True, feature_extract=True):
+    # Get the model constructor
     model_fn = getattr(models, resnet_version)
-    model = model_fn(weights="DEFAULT" if pretrained else None)
+
+    # Dynamically fetch the correct weights enum (e.g., ResNet50_Weights)
+    weights_enum_name = resnet_version.capitalize() + "_Weights"
+    weights_enum = getattr(models, weights_enum_name, None)
+
+    # Use DEFAULT weights if available and pretrained is True
+    weights = weights_enum.DEFAULT if pretrained and weights_enum else None
+
+    model = model_fn(weights=weights)
+
     if feature_extract:
+        for param in model.parameters():
+            param.requires_grad = False
         model.fc = nn.Identity()
+
     return model.to(device)
 
-def fine_tune_model(model, num_classes):
-    if isinstance(model.fc, nn.Linear):
-        in_features = model.fc.in_features
-    else:
-        raise TypeError("model.fc must be nn.Linear")
+def fine_tune_model(model, num_classes, learning_rate, unfreeze_from="layer4"):
+    for param in model.parameters():
+        param.requires_grad = False
+
+    for name, child in model.named_children():
+        if name == unfreeze_from:
+            for param in child.parameters():
+                param.requires_grad = True
+
+    num_features = model.fc.in_features if hasattr(model.fc, "in_features") else 2048
     model.fc = nn.Sequential(
-        nn.Linear(in_features, 512),
+        nn.Linear(num_features, 512),
         nn.ReLU(),
         nn.Dropout(0.4),
         nn.Linear(512, num_classes)
     ).to(device)
-    return model
+
+    optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
+    return model, optimizer
+
 
 def train_model(model, dataloader):
     criterion = nn.CrossEntropyLoss()
@@ -170,28 +192,14 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
         json.dump(metrics, f, indent=2)
     print(f"[DEBUG] Metrics saved to: {os.path.abspath(out_path)}")
 
-import requests
-import json
-def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
-    res = {}
-    res["groupname"] = groupname
-    res["images"] = results
-    res = json.dumps(res)
-    # print(res)
-    response = requests.post(url, res)
-    try:
-        result = json.loads(response.text)
-        print(f"accuracy is {result['accuracy']}")
-    except json.JSONDecodeError:
-        print(f"ERROR: {response.text}")
-
 # ---------------- MAIN SCRIPT ----------------
 start_time = time.time()
 model = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
 if fine_tune:
     num_classes = len(train_dataset.classes)
-    model = fine_tune_model(model, num_classes=num_classes)
-    final_loss = train_model(model, train_loader)
+    model, optimizer = fine_tune_model(model, num_classes, learning_rate)
+    final_loss = train_model(model, train_loader, optimizer=optimizer)
+
 else:
     model.fc = nn.Identity()
     final_loss = None
@@ -223,6 +231,7 @@ out_path = os.path.join(sub_dir, f"sub_{resnet_version}.json")
 with open(out_path, "w") as f:
     json.dump(submission, f, indent=2)
 print(f"Done! {len(submission)} queries written to: {out_path}")
+
 top_k_acc = calculate_top_k_accuracy(query_paths, gallery_paths, similarities, TRAIN_LOOKUP, k)
 runtime = time.time() - start_time
 save_metrics_json(
@@ -236,6 +245,3 @@ save_metrics_json(
     num_epochs=num_epochs,
     final_loss=final_loss
 )
-
-# submission is the dictionary that we have to give to result function
-submit(submission, groupname="Stochastic thr")
