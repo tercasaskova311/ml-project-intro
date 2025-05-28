@@ -15,11 +15,11 @@ import requests
 
 # ---------------- CONFIGURATION ----------------
 k = 10
-batch_size = 32
+batch_size = 16
 FINE_TUNE = True
 TRAIN_LAST_LAYER_ONLY = True
-epochs = 10
-lr = 1e-5
+epochs = 15
+lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # ---------------- MODEL & TRANSFORM ----------------
@@ -196,7 +196,15 @@ query_dir = os.path.join(DATA_DIR, "test", "query")
 gallery_dir = os.path.join(DATA_DIR, "test", "gallery")
 
 train_dataset = ImageFolderDataset(training_dir, transform=preprocess)
-train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
+# train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=4,       # o 2 se sei su una macchina meno potente
+    pin_memory=True      # migliora le prestazioni su CUDA
+)
+
 
 classifier = ClipClassifier(model, num_classes=len(train_dataset.class_to_idx)).to(device)
 final_loss = fine_tune_clip(train_loader, classifier) if FINE_TUNE else None
