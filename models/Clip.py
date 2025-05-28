@@ -216,7 +216,7 @@ sub_path = os.path.join(sub_dir, "sub_clip.json")
 with open(sub_path, "w") as f:
     json.dump(submission, f, indent=2)
 print(f"Submission saved to: {os.path.abspath(sub_path)}")
-submit(submission, groupname="stochastic thr")
+submit(submission, groupname="Stochastic thr")
 
 
 top_k_acc = calculate_top_k_accuracy(query_paths, retrieval_results, TRAIN_LOOKUP, k=k)

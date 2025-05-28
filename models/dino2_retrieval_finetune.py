@@ -137,6 +137,24 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
         json.dump(metrics, f, indent=2)
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
+import json
+import requests
+
+
+def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
+    res = {}
+    res["groupname"] = groupname
+    res["images"] = results
+    res = json.dumps(res)
+    # print(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
+
+
 # ---------------- MAIN LOGIC ----------------
 def main():
     start_time = time.time()
@@ -215,6 +233,8 @@ def main():
     )
 
     print("Retrieval pipeline with metrics logging complete.")
+
+    submit(submission, groupname="Stochastic thr")
 
 if __name__ == "__main__":
     main()

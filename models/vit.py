@@ -128,6 +128,21 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_
         json.dump(metrics, f, indent=2)
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
+import requests
+
+def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
+    res = {}
+    res["groupname"] = groupname
+    res["images"] = results
+    res = json.dumps(res)
+    # print(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
+
 def main():
     start_time = time.time()
 
@@ -169,6 +184,8 @@ def main():
     num_classes = len(train_dataset.classes) if FINE_TUNE else None
     save_metrics_json("vit_base_patch16_224", topk_acc, batch_size, FINE_TUNE, num_classes, total_time,
                       "CrossEntropyLoss" if FINE_TUNE else "NotApplicable", epochs if FINE_TUNE else 0, final_loss)
+    
+    submit(submission, groupname="Stochastic Thr")
 
 if __name__ == "__main__":
     main()
