@@ -228,18 +228,45 @@ if __name__ == "__main__":
 
     if FINE_TUNE:
         train_dataset = ImageFolder(root=train_root, transform=transform)
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=4,
+            pin_memory=True
+        )
         final_loss = fine_tune_model(model, train_loader, num_epochs=epochs, lr=lr)
     else:
         final_loss = None
 
     gallery_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/gallery"), transform)
     query_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/query"), transform)
-    gallery_loader = DataLoader(gallery_dataset, batch_size)
-    query_loader = DataLoader(query_dataset, batch_size)
+    # gallery_loader = DataLoader(gallery_dataset, batch_size)
+    gallery_loader = DataLoader(
+        gallery_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
+
+    query_loader = DataLoader(
+        query_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=4,
+        pin_memory=True
+    )
+    # query_loader = DataLoader(query_dataset, batch_size)
 
     gallery_feats, gallery_names = extract_features(model, gallery_loader)
     query_feats, query_names = extract_features(model, query_loader)
+
+   
+
+
+
 
     result = {}
     sim_matrix = cosine_similarity(query_feats, gallery_feats)
