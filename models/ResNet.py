@@ -19,8 +19,8 @@ train_dir = os.path.join(data_dir, 'training')
 test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
-fine_tune = True
-resnet_version = 'resnet34' # Change to 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'...
+fine_tune = False
+resnet_version = 'resnet152' # Change to 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'...
 k = 10
 batch_size = 32
 num_epochs = 10
@@ -192,6 +192,21 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
         json.dump(metrics, f, indent=2)
     print(f"[DEBUG] Metrics saved to: {os.path.abspath(out_path)}")
 
+import requests
+def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
+    res = {}
+    res["groupname"] = groupname
+    res["images"] = results
+    res = json.dumps(res)
+    # print(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
+
+
 # ---------------- MAIN SCRIPT ----------------
 start_time = time.time()
 model = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
@@ -245,3 +260,5 @@ save_metrics_json(
     num_epochs=num_epochs,
     final_loss=final_loss
 )
+
+submit(submission, groupname="Stochastic thr")
