@@ -170,6 +170,21 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
         json.dump(metrics, f, indent=2)
     print(f"[DEBUG] Metrics saved to: {os.path.abspath(out_path)}")
 
+import requests
+import json
+def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
+    res = {}
+    res["groupname"] = groupname
+    res["images"] = results
+    res = json.dumps(res)
+    # print(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
+
 # ---------------- MAIN SCRIPT ----------------
 start_time = time.time()
 model = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
@@ -223,3 +238,4 @@ save_metrics_json(
 )
 
 # submission is the dictionary that we have to give to result function
+submit(submission, groupname="Stochastic thr")

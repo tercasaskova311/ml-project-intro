@@ -13,7 +13,7 @@ from datetime import datetime
 
 # -------------------- CONFIGURATION --------------------
 K = 10
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 MODEL_NAME = "facebook/dinov2-base"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -111,6 +111,22 @@ def save_metrics_json(
 
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
+import requests
+import json
+
+def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
+    res = {}
+    res["groupname"] = groupname
+    res["images"] = results
+    res = json.dumps(res)
+    # print(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
+
 # -------------------- MAIN SCRIPT --------------------
 def main(k=K):
     start_time = time.time()
@@ -174,6 +190,8 @@ def main(k=K):
         num_epochs=None,
         final_loss=None
     )
+
+    submit(results, groupname="Stochastic thr")
 
 if __name__ == "__main__":
     main()

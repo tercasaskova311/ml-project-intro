@@ -196,6 +196,19 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
         json.dump(metrics, f, indent=2)
 
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
+import requests
+def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
+    res = {}
+    res["groupname"] = groupname
+    res["images"] = results
+    res = json.dumps(res)
+    # print(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
 
 # ----- Main Execution -----
 if __name__ == "__main__":
@@ -258,3 +271,5 @@ if __name__ == "__main__":
         final_loss=final_loss,
         pooling_type="GeM" if USE_GEM else "GAP"
     )
+
+    submit(result, groupname="Stochastic_thr")
