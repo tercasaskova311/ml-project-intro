@@ -15,10 +15,10 @@ from datetime import datetime
 # ----- Config -----
 K = 10
 FINE_TUNE = True
-USE_GEM = False
-batch_size = 64
-epochs = 10
-lr = 1e-4
+USE_GEM = True
+batch_size = 16
+epochs = 12
+lr = 5e-5
 
 DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")

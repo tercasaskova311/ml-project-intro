@@ -1,5 +1,3 @@
-# script with EfficientNet model definition
-
 import os
 import json
 import time
@@ -15,16 +13,13 @@ import torchvision.transforms as transforms
 from torchvision.datasets import ImageFolder
 
 # ----- Config -----
-
 K = 10
 FINE_TUNE = True
-USE_GEM = False
+USE_GEM = True
 batch_size = 32
-epochs = 10
-lr = 1e-4
-MODEL_VARIANT = 'b3'  # choose between 'b0' e 'b3'
-# EfficientNet-B3 richiede immagini 300x300, quindi consuma più memoria rispetto a B0 (224x224) -- quindi meglio batch size 32 invece che size 64
-
+epochs = 12
+lr = 5e-5
+MODEL_VARIANT = 'b0'  # choose between 'b0' and 'b3'
 
 MODEL_NAME_MAP = {
     'b0': 'efficientnet_b0',
@@ -63,13 +58,14 @@ class EfficientNetWithGeM(torch.nn.Module):
     def __init__(self, model_name, num_classes=None, fine_tune=False):
         super().__init__()
         base = timm.create_model(model_name, pretrained=True, num_classes=0)
+        base = base.to(DEVICE)  # move base model to device
         self.features = base.forward_features
-        self.gem_pool = GeM()
-        self.flatten = torch.nn.Flatten()
+        self.gem_pool = GeM().to(DEVICE)
+        self.flatten = torch.nn.Flatten().to(DEVICE)
         self.out_dim = base.num_features
         self.classifier = None
         if fine_tune and num_classes is not None:
-            self.classifier = torch.nn.Linear(self.out_dim, num_classes)
+            self.classifier = torch.nn.Linear(self.out_dim, num_classes).to(DEVICE)
 
     def forward(self, x):
         x = self.features(x)
@@ -88,7 +84,11 @@ def load_model(num_classes=None, fine_tune=False):
     return model.to(DEVICE)
 
 def load_model_GEM(num_classes=None, fine_tune=False):
-    return EfficientNetWithGeM(MODEL_NAME, num_classes=num_classes, fine_tune=fine_tune).to(DEVICE)
+    model = EfficientNetWithGeM(MODEL_NAME, num_classes=num_classes, fine_tune=fine_tune)
+    return model
+
+# [Remaining code unchanged]
+
 
 # ----- Dataset -----
 class ImagePathDataset(Dataset):
@@ -110,6 +110,7 @@ class ImagePathDataset(Dataset):
 # ----- Feature Extraction -----
 @torch.no_grad()
 def extract_features(model, dataloader):
+    model.eval()
     features = []
     filenames = []
     for imgs, fnames in tqdm(dataloader):
@@ -196,16 +197,14 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
         json.dump(metrics, f, indent=2)
 
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
+
 import requests
+
 def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
-    res = {}
-    res["groupname"] = groupname
-    res["images"] = results
-    res = json.dumps(res)
-    # print(res)
-    response = requests.post(url, res)
+    res = {"groupname": groupname, "images": results}
+    response = requests.post(url, json=res)
     try:
-        result = json.loads(response.text)
+        result = response.json()
         print(f"accuracy is {result['accuracy']}")
     except json.JSONDecodeError:
         print(f"ERROR: {response.text}")
