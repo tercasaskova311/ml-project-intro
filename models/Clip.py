@@ -15,7 +15,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 # ---------------- CONFIGURATION ----------------
 k = 10
 batch_size = 32
-FINE_TUNE = True
+FINE_TUNE = False
 TRAIN_LAST_LAYER_ONLY = True
 epochs = 5
 lr = 1e-5
@@ -161,6 +161,23 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
+    
+
+
+import requests
+def submit(results, groupname="stochastic thr", url="http://65.108.245.177:3001/retrieval/"):
+    res = {}
+    res["groupname"] = groupname
+    res["images"] = results
+    res = json.dumps(res)
+    # print(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
+
 
 # ---------------- MAIN EXECUTION ----------------
 start_time = time.time()
@@ -199,6 +216,8 @@ sub_path = os.path.join(sub_dir, "sub_clip.json")
 with open(sub_path, "w") as f:
     json.dump(submission, f, indent=2)
 print(f"Submission saved to: {os.path.abspath(sub_path)}")
+submit(submission, groupname="stochastic thr")
+
 
 top_k_acc = calculate_top_k_accuracy(query_paths, retrieval_results, TRAIN_LOOKUP, k=k)
 runtime = time.time() - start_time
