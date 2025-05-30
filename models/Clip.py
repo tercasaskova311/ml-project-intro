@@ -15,15 +15,15 @@ import requests
 
 # ---------------- CONFIGURATION ----------------
 k = 10
-batch_size = 16
+batch_size = 2
 FINE_TUNE = True
 TRAIN_LAST_LAYER_ONLY = True
-epochs = 15
+epochs = 5
 lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # ---------------- MODEL & TRANSFORM ----------------
-model, preprocess = clip.load("ViT-B/32", device=device)
+model, preprocess = clip.load("ViT-L/14", device=device)
 
 if not FINE_TUNE:
     for param in model.parameters():
@@ -101,26 +101,39 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
         print(f"Epoch {epoch+1}/{epochs} - Loss: {final_loss:.4f}")
     return final_loss
 
-def encode_images(image_folder, model, preprocess):
+def encode_images(image_folder, model, preprocess, batch_size=2):
     image_paths = sorted([
         os.path.join(image_folder, f)
         for f in os.listdir(image_folder)
-        if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif'))  # FIX
+        if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif'))
     ])
-    images = []
+    features = []
     valid_paths = []
-    for p in image_paths:
-        try:
-            img = preprocess(Image.open(p).convert("RGB"))
-            images.append(img)
-            valid_paths.append(p)
-        except UnidentifiedImageError:
-            print(f"⚠️ Skipping invalid image file: {p}")
-    images = torch.stack(images).to(device)
-    with torch.no_grad():
-        features = model.encode_image(images).float()
-        features /= features.norm(dim=-1, keepdim=True)
-    return features, valid_paths
+    model.eval()
+
+    for i in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[i:i + batch_size]
+        batch_images = []
+        current_valid_paths = []
+        for p in batch_paths:
+            try:
+                img = preprocess(Image.open(p).convert("RGB"))
+                batch_images.append(img)
+                current_valid_paths.append(p)
+            except UnidentifiedImageError:
+                print(f"⚠️ Skipping invalid image file: {p}")
+        if not batch_images:
+            continue
+        batch_tensor = torch.stack(batch_images).to(device)
+        with torch.no_grad():
+            batch_features = model.encode_image(batch_tensor).float()
+            batch_features /= batch_features.norm(dim=-1, keepdim=True)
+            features.append(batch_features.cpu())
+            valid_paths.extend(current_valid_paths)
+        torch.cuda.empty_cache()
+
+    return torch.cat(features, dim=0).to(device), valid_paths
+
 
 def retrieve(query_features, gallery_features, query_paths, gallery_paths, k):
     similarities = query_features @ gallery_features.T
