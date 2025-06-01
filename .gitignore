@@ -2,7 +2,6 @@
 .venv/ 
 
 # Ignore data and images
-#!data/README.md  # optional placeholder
 data/
 data_original/
 data_flower/

@@ -1,26 +1,27 @@
 torch
 torchvision
 timm
-scikit-learn
 numpy
+scikit-learn
 pandas
 matplotlib
 tqdm
-kaggle
-transformers
 Pillow
+requests
+
+
+# Transformers (DINOv2)
+transformers
+
+# CLIP (OpenAI GitHub version)
 git+https://github.com/openai/CLIP.git
 
-
-# Uncomment the following lines if you need specific versions or CUDA support
+# Optional: Uncomment for specific versions / CUDA compatibility
 # torch==2.2.2+cu118
 # torchvision==0.17.2+cu118
-# torchaudio==2.2.2+cu118
 # transformers==4.37.2
 # scikit-learn==1.4.2
-# tqdm==4.66.4
+# timm==0.9.12
 # Pillow==11.2.0
-# numpy<2.0
 # matplotlib==3.8.4
-# datasets==2.19.1
-# faiss-cpu==1.7.4
+# tqdm==4.66.4
