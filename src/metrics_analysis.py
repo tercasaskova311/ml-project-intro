@@ -3,19 +3,26 @@ import json
 from collections import defaultdict
 import numpy as np
 
-
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))  # this file
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 RESULTS_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "results"))
 
-# Grouped by (model_name, batch_size, is_finetuned, num_classes, num_epochs)
 groups = defaultdict(list)
 
-# Load all JSON metrics
+print("Scanning results in:", RESULTS_DIR)
+
+# Load all JSON metrics safely
 for filename in os.listdir(RESULTS_DIR):
     if filename.endswith(".json"):
         path = os.path.join(RESULTS_DIR, filename)
-        with open(path, "r") as f:
-            data = json.load(f)
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f"Skipping invalid JSON: {filename} → {e}")
+            continue
+        except Exception as e:
+            print(f"Error reading {filename}: {e}")
+            continue
 
         key = (
             data.get("model_name"),
@@ -35,7 +42,7 @@ for filename in os.listdir(RESULTS_DIR):
         groups[key].append(metrics)
 
 # Aggregate and print results
-print(" Aggregated Metrics per Model Configuration:\n")
+print("\nAggregated Metrics per Model Configuration:\n")
 for key, runs in groups.items():
     model_name, batch_size, is_finetuned, num_classes, num_epochs, pooling_type = key
     accs = [r["top_k_accuracy"] for r in runs]
@@ -43,8 +50,8 @@ for key, runs in groups.items():
     runtimes = [r["runtime_seconds"] for r in runs]
 
     print(f"Model: {model_name}, Batch: {batch_size}, Fine-tuned: {is_finetuned}, "
-          f"Classes: {num_classes}, Epochs: {num_epochs}", "Pooling: {pooling_type}")
-    print(f"   • Runs: {len(runs)}")
-    print(f"   • Avg Accuracy:      {np.mean(accs):.4f}")
-    print(f"   • Avg Final Loss:    {np.mean(losses):.4f}")
-    print(f"   • Avg Runtime (sec): {np.mean(runtimes):.2f}\n")
+          f"Classes: {num_classes}, Epochs: {num_epochs}, Pooling: {pooling_type}")
+    print(f"   Runs: {len(runs)}")
+    print(f"   Avg Accuracy:      {np.mean(accs):.4f}")
+    print(f"   Avg Final Loss:    {np.mean(losses):.4f}")
+    print(f"   Avg Runtime (sec): {np.mean(runtimes):.2f}\n")
