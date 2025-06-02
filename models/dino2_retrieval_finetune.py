@@ -15,7 +15,7 @@ import torch.nn as nn
 
 # ---------------- CONFIGURATION ----------------
 K = 10
-EPOCHS = 5
+EPOCHS = 5 
 BATCH_SIZE = 32
 LR = 1e-5
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -28,6 +28,7 @@ GALLERY_DIR = os.path.join(BASE_DIR, "data", "test", "gallery")
 OUTPUT_PATH = os.path.join(BASE_DIR, "submissions", "sub_dino2_finetune.json")
 
 # ---------------- TRANSFORM ----------------
+# Normalization settings are automatically adapted from the model's config
 processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -109,7 +110,7 @@ def extract_class(filename, train_lookup):
             return "_".join(parts[:-1])
     return train_lookup.get(os.path.basename(filename), "unknown")
 
-<<<<<<< HEAD
+# ---------------- SAVE METRICS ----------------
 def save_metrics_json(
     model_name,
     top_k_accuracy,
@@ -121,13 +122,7 @@ def save_metrics_json(
     num_epochs=None,
     final_loss=None
 ):
-    # Use the script's directory to resolve path robustly
-=======
-# ---------------- METRICS SAVE ----------------
-def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
-                      num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
-                      num_epochs=None, final_loss=None):
->>>>>>> 30k_dataset
+    # Use the script's directory to resolve path
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
@@ -152,12 +147,7 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
         json.dump(metrics, f, indent=2)
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
-<<<<<<< HEAD
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
-=======
-import json
-import requests
->>>>>>> 30k_dataset
 
 
 def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
@@ -174,7 +164,7 @@ def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
         print(f"ERROR: {response.text}")
 
 
-# ---------------- MAIN LOGIC ----------------
+# ---------------- MAIN ----------------
 def main():
     start_time = time.time()
     print("[1] Loading pretrained DINOv2 model...")
@@ -230,14 +220,10 @@ def main():
     top_k_acc = correct / total if total > 0 else 0.0
     print(f"Top-{K} Accuracy (valid queries only): {top_k_acc:.4f}")
 
-<<<<<<< HEAD
     top_k_acc = correct / len(q_names)
     print(f"Top-{K} Accuracy: {top_k_acc:.4f}")
 
     print(f"[7] Saving output JSON to {OUTPUT_PATH}...")
-=======
-    print(f"[8] Saving output JSON to {OUTPUT_PATH}...")
->>>>>>> 30k_dataset
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:
         json.dump(submission, f, indent=2)
@@ -260,11 +246,7 @@ def main():
 
     print("Retrieval pipeline with metrics logging complete.")
 
-<<<<<<< HEAD
     print("Retrieval pipeline with metrics logging complete.")
-=======
-    submit(submission, groupname="Stochastic thr")
->>>>>>> 30k_dataset
 
 if __name__ == "__main__":
     main()

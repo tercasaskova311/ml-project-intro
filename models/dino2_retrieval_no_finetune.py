@@ -85,10 +85,7 @@ def save_metrics_json(
     num_epochs=None,
     final_loss=None
 ):
-<<<<<<< HEAD
     # Use the script's directory to resolve path robustly
-=======
->>>>>>> 30k_dataset
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
@@ -114,25 +111,6 @@ def save_metrics_json(
         json.dump(metrics, f, indent=2)
 
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
-<<<<<<< HEAD
-=======
-
-import requests
-import json
-
-def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
-    res = {}
-    res["groupname"] = groupname
-    res["images"] = results
-    res = json.dumps(res)
-    # print(res)
-    response = requests.post(url, res)
-    try:
-        result = json.loads(response.text)
-        print(f"accuracy is {result['accuracy']}")
-    except json.JSONDecodeError:
-        print(f"ERROR: {response.text}")
->>>>>>> 30k_dataset
 
 # -------------------- MAIN SCRIPT --------------------
 def main(k=K):
@@ -176,13 +154,8 @@ def main(k=K):
             correct += 1
         total += 1
 
-<<<<<<< HEAD
     top_k_acc = correct / len(query_filenames)
     print(f"Top-{k} Accuracy: {top_k_acc:.4f}")
-=======
-    top_k_acc = correct / total if total > 0 else 0.0
-    print(f"Top-{k} Accuracy (valid queries only): {top_k_acc:.4f}")
->>>>>>> 30k_dataset
 
     # Save submission
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
