@@ -7,13 +7,7 @@ pandas
 matplotlib
 tqdm
 Pillow
-<<<<<<< HEAD
-git+https://github.com/openai/CLIP.git
-=======
 requests
-
-
-# Transformers (DINOv2)
 transformers
 
 # CLIP (OpenAI GitHub version)
@@ -28,4 +22,3 @@ git+https://github.com/openai/CLIP.git
 # Pillow==11.2.0
 # matplotlib==3.8.4
 # tqdm==4.66.4
->>>>>>> 30k_dataset
