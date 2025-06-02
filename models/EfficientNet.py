@@ -13,13 +13,14 @@ import torchvision.transforms as transforms
 from torchvision.datasets import ImageFolder
 
 # ----- Config -----
-K = 10
-FINE_TUNE = True
-USE_GEM = True
-batch_size = 32
-epochs = 17
-lr = 5e-5
-MODEL_VARIANT = 'b0'  # choose between 'b0' and 'b3'
+# Configuration parameters
+K = 10  # top-k for retrieval evaluation
+FINE_TUNE = True  # whether to fine-tune the model on training data
+USE_GEM = True  # whether to use GeM pooling or default global average pooling (GAP)
+batch_size = 32  # batch size for training and inference
+epochs = 10  # number of fine-tuning epochs
+lr = 5e-5  # learning rate for optimizer
+MODEL_VARIANT = 'b0'  # efficientnet variant: choose between 'b0' and 'b3'
 
 MODEL_NAME_MAP = {
     'b0': 'efficientnet_b0',
@@ -36,6 +37,7 @@ DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ----- Image preprocessing -----
+# Standard preprocessing for EfficientNet using ImageNet statistics
 transform = transforms.Compose([
     transforms.Resize(IMAGE_SIZE),
     transforms.ToTensor(),
@@ -43,6 +45,7 @@ transform = transforms.Compose([
 ])
 
 # ----- GeM Pooling -----
+# GeM (Generalized Mean Pooling) layer for improved retrieval performance
 class GeM(torch.nn.Module):
     def __init__(self, p=3.0, eps=1e-6):
         super().__init__()
@@ -54,6 +57,7 @@ class GeM(torch.nn.Module):
             x.clamp(min=self.eps).pow(self.p), (1, 1)).pow(1. / self.p)
 
 # ----- EfficientNet with GeM -----
+# Custom EfficientNet model using GeM pooling, optionally with classification head
 class EfficientNetWithGeM(torch.nn.Module):
     def __init__(self, model_name, num_classes=None, fine_tune=False):
         super().__init__()
@@ -82,6 +86,7 @@ class EfficientNetWithGeM(torch.nn.Module):
         return x
 
 # ----- Model Loaders -----
+# Load standard or GeM-pooled EfficientNet model
 def load_model(num_classes=None, fine_tune=False):
     model = timm.create_model(MODEL_NAME, pretrained=True)
     if fine_tune and num_classes is not None:
@@ -93,8 +98,8 @@ def load_model_GEM(num_classes=None, fine_tune=False):
     model = EfficientNetWithGeM(MODEL_NAME, num_classes=num_classes, fine_tune=fine_tune)
     return model
 
-
 # ----- Dataset -----
+# Dataset that returns image tensors and filenames (used for gallery/query)
 class ImagePathDataset(Dataset):
     def __init__(self, folder_path, transform=None):
         self.img_paths = [os.path.join(folder_path, fname) for fname in os.listdir(folder_path)
@@ -112,44 +117,68 @@ class ImagePathDataset(Dataset):
         return image, os.path.basename(img_path)
 
 # ----- Feature Extraction -----
-@torch.no_grad()
+@torch.no_grad()  # Disable gradient computation for inference (faster and memory efficient)
 def extract_features(model, dataloader):
-    model.eval()
-    features = []
-    filenames = []
-    for imgs, fnames in tqdm(dataloader):
-        imgs = imgs.to(DEVICE)
-        feats = model(imgs)
+    model.eval()  # Set the model to evaluation mode to deactivate dropout, batchnorm updates, etc.
+    features = []  # To store the extracted feature vectors
+    filenames = []  # To store corresponding image filenames
+
+    for imgs, fnames in tqdm(dataloader):  # Iterate through image batches
+        imgs = imgs.to(DEVICE)  # Move the batch to GPU (if available)
+        feats = model(imgs)  # Forward pass through the model
+
+        # If the output has 4 dimensions (e.g., B x C x H x W), flatten it
+        # This ensures each image is represented as a single vector
         if feats.dim() == 4:
             feats = feats.view(feats.size(0), -1)
-        features.append(feats.cpu().numpy())
-        filenames.extend(fnames)
+
+        features.append(feats.cpu().numpy())  # Move features to CPU and convert to NumPy
+        filenames.extend(fnames)  # Track filenames for identification
+
+    # Concatenate all feature vectors into a matrix of shape [N_images x feature_dim]
     return np.vstack(features), filenames
 
-# ----- Fine-tuning Function -----
-def fine_tune_model(model, train_loader, num_epochs=5, lr=1e-4):
-    model.train()
-    optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr)
-    loss_fn = torch.nn.CrossEntropyLoss()
-    final_loss = 0.0
 
-    for epoch in range(num_epochs):
+## ----- Fine-tuning Function -----
+# Trains the model using classification as a proxy task
+# The objective is to make embeddings more discriminative for retrieval
+def fine_tune_model(model, train_loader, num_epochs=5, lr=1e-4):
+    model.train()  # Enable training mode
+
+    # Optimizer: Adam adapts learning rate per parameter and handles sparse gradients well
+    optimizer = torch.optim.Adam(
+        filter(lambda p: p.requires_grad, model.parameters()),  # Update only trainable layers (e.g., classifier)
+        lr=lr
+    )
+    # Loss: CrossEntropy is the standard for multi-class classification.
+    # Though our final task is retrieval, classification helps learn separable embeddings.
+    loss_fn = torch.nn.CrossEntropyLoss()
+    final_loss = 0.0  # Will hold the loss of the final epoch
+
+    for epoch in range(num_epochs):  # Repeat training for N epochs
         epoch_loss = 0.0
-        for imgs, labels in tqdm(train_loader):
+
+        for imgs, labels in tqdm(train_loader):  # Iterate through training batches
             imgs = imgs.to(DEVICE)
             labels = labels.to(DEVICE)
-            preds = model(imgs)
-            loss = loss_fn(preds, labels)
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
+
+            preds = model(imgs)  # Get class predictions from the model
+            loss = loss_fn(preds, labels)  # Compute how far predictions are from true labels
+
+            optimizer.zero_grad()  # Clear previous gradients
+            loss.backward()  # Backpropagate the loss
+            optimizer.step()  # Update the model weights
+
+            epoch_loss += loss.item()  # Accumulate batch loss
+
+        # Compute and report average loss for this epoch
         final_loss = epoch_loss / len(train_loader)
         print(f"Epoch {epoch+1}/{num_epochs} - Loss: {final_loss:.4f}")
 
-    return final_loss
+    return final_loss  # Return final epoch loss for metric logging
 
 # ----- Accuracy Calculation -----
+# Extract class from filename and compute top-k retrieval accuracy
 def extract_class(filename, train_lookup):
     if "_" in filename:
         parts = filename.split("_")
@@ -173,6 +202,7 @@ def calculate_top_k_accuracy(results, train_lookup, k=10):
     return acc
 
 # ----- Metrics Saver -----
+# Save training and retrieval metadata for later analysis
 def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None, pooling_type=None):
@@ -202,8 +232,8 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
 
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
+# ----- Submission Function -----
 import requests
-
 def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
     res = {"groupname": groupname, "images": results}
     response = requests.post(url, json=res)
@@ -217,6 +247,7 @@ def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
 if __name__ == "__main__":
     start_time = time.time()
 
+    # Create a mapping from image filename to class
     TRAIN_LOOKUP = {}
     train_root = os.path.join(DATA_DIR, 'training')
     for class_name in os.listdir(train_root):
@@ -228,50 +259,29 @@ if __name__ == "__main__":
                 TRAIN_LOOKUP[img_name] = class_name
 
     num_classes = len(os.listdir(train_root))
+
+    # Load EfficientNet with or without GeM pooling
     model = load_model_GEM(num_classes=num_classes, fine_tune=FINE_TUNE) if USE_GEM else load_model(num_classes=num_classes, fine_tune=FINE_TUNE)
 
+    # Optional fine-tuning phase
     if FINE_TUNE:
         train_dataset = ImageFolder(root=train_root, transform=transform)
-        # train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=4,
-            pin_memory=True
-        )
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
         final_loss = fine_tune_model(model, train_loader, num_epochs=epochs, lr=lr)
     else:
         final_loss = None
 
+    # Prepare gallery and query datasets
     gallery_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/gallery"), transform)
     query_dataset = ImagePathDataset(os.path.join(DATA_DIR, "test/query"), transform)
-    # gallery_loader = DataLoader(gallery_dataset, batch_size)
-    gallery_loader = DataLoader(
-        gallery_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True
-    )
+    gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    query_loader = DataLoader(query_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-    query_loader = DataLoader(
-        query_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True
-    )
-    # query_loader = DataLoader(query_dataset, batch_size)
-
+    # Extract features for retrieval
     gallery_feats, gallery_names = extract_features(model, gallery_loader)
     query_feats, query_names = extract_features(model, query_loader)
 
-   
-
-
-
-
+    # Compute cosine similarities and perform top-k retrieval
     result = {}
     sim_matrix = cosine_similarity(query_feats, gallery_feats)
     for i, qname in enumerate(query_names):
@@ -279,6 +289,7 @@ if __name__ == "__main__":
         samples = [gallery_names[idx] for idx in topk_idx]
         result[qname] = samples
 
+    # Save results to JSON submission format
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "submissions"))
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"sub_{MODEL_NAME}.json")
@@ -286,6 +297,7 @@ if __name__ == "__main__":
         json.dump(result, f, indent=2)
     print(f"Submission saved to: {output_path}")
 
+    # Evaluate accuracy and store metrics
     topk_acc = calculate_top_k_accuracy(result, TRAIN_LOOKUP, k=K)
     total_time = time.time() - start_time
 
@@ -302,4 +314,5 @@ if __name__ == "__main__":
         pooling_type="GeM" if USE_GEM else "GAP"
     )
 
+    # Optional submission to evaluation server
     submit(result, groupname="Stochastic_thr")

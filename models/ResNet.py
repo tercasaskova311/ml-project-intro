@@ -19,15 +19,18 @@ train_dir = os.path.join(data_dir, 'training')
 test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
-fine_tune = False
-resnet_version = 'resnet152' # Change to 'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152'...
-k = 10
-batch_size = 32
-num_epochs = 10
-learning_rate = 1e-5
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# You can choose any ResNet variant supported by torchvision
+resnet_version = 'resnet152'  # Alternatives: 'resnet34', 'resnet50', # 'resnet101', etc.
+fine_tune = False  # If True, retrain the model on the dataset
+k = 10  # Number of top matches to retrieve
+batch_size = 32  # Batch size 
+num_epochs = 10  # Number of training epochs
+learning_rate = 1e-5  # Learning rate for optimizer
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Prefer GPU
 
 # ---------------- DATASET & TRANSFORMS ----------------
+# Input images are resized to 224x224, the default input size for ResNet models.
+# Normalization uses ImageNet statistics, which matches the pretrained model's expectations.
 data_transforms = {
     'training': transforms.Compose([
         transforms.Resize((224, 224)),
@@ -41,6 +44,7 @@ data_transforms = {
     ])
 }
 
+# Dataset class for inference, it loads filenames only
 class ImageDatasetWithoutLabels(Dataset):
     def __init__(self, folder, transform=None):
         self.image_files = sorted([
@@ -60,6 +64,7 @@ class ImageDatasetWithoutLabels(Dataset):
             image = self.transform(image)
         return image, self.image_files[idx]
 
+# Dataset and DataLoaders
 train_dataset = datasets.ImageFolder(train_dir, data_transforms['training'])
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 query_dataset = ImageDatasetWithoutLabels(test_query_dir, transform=data_transforms['test'])
@@ -68,36 +73,34 @@ gallery_dataset = ImageDatasetWithoutLabels(test_gallery_dir, transform=data_tra
 gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False)
 
 # ---------------- MODEL ----------------
-#itiliaize model and it's weights--------------------------------------------------
 def initialize_model(resnet_version=resnet_version, pretrained=True, feature_extract=True):
-    # Get the model constructor
+    # Dynamically load the ResNet model and its weights
     model_fn = getattr(models, resnet_version)
-
-    # Dynamically fetch the correct weights enum (e.g., ResNet50_Weights)
     weights_enum_name = resnet_version.capitalize() + "_Weights"
     weights_enum = getattr(models, weights_enum_name, None)
-
-    # Use DEFAULT weights if available and pretrained is True
     weights = weights_enum.DEFAULT if pretrained and weights_enum else None
-
     model = model_fn(weights=weights)
 
+    # Freeze all layers if we only want to extract features
     if feature_extract:
         for param in model.parameters():
             param.requires_grad = False
-        model.fc = nn.Identity()
+        model.fc = nn.Identity()  # Remove the classifier head for feature use
 
     return model.to(device)
 
 def fine_tune_model(model, num_classes, learning_rate, unfreeze_from="layer4"):
+    # Freeze all layers first
     for param in model.parameters():
         param.requires_grad = False
 
+    # Unfreeze a specific part of the network (e.g., layer4) for fine-tuning
     for name, child in model.named_children():
         if name == unfreeze_from:
             for param in child.parameters():
                 param.requires_grad = True
 
+    # Replace the classification head with a new one adapted to our dataset
     num_features = model.fc.in_features if hasattr(model.fc, "in_features") else 2048
     model.fc = nn.Sequential(
         nn.Linear(num_features, 512),
@@ -109,21 +112,26 @@ def fine_tune_model(model, num_classes, learning_rate, unfreeze_from="layer4"):
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate)
     return model, optimizer
 
-
 def train_model(model, dataloader):
+    # Use CrossEntropyLoss because we are training a multi-class classifier.
+    # Even if the final task is retrieval, classification-based training helps
+    # the model learn more structured, discriminative representations.
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     final_loss = None
+
     for epoch in range(num_epochs):
         model.train()
         running_loss = 0.0
         for inputs, labels in dataloader:
             inputs, labels = inputs.to(device), labels.to(device)
+
             optimizer.zero_grad()
             outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
+
             running_loss += loss.item()
         final_loss = running_loss / len(dataloader)
         print(f"Epoch {epoch + 1}/{num_epochs} - Loss: {final_loss:.4f}")
@@ -131,6 +139,7 @@ def train_model(model, dataloader):
 
 # ---------------- FEATURE EXTRACTION ----------------
 def extract_features(model, loader):
+    # Given a DataLoader, extract and return image features (no labels)
     model.eval()
     features = []
     with torch.no_grad():
@@ -138,9 +147,10 @@ def extract_features(model, loader):
             inputs = inputs.to(device)
             outputs = model(inputs)
             features.append(outputs.cpu().numpy())
-    return np.vstack(features)
+    return np.vstack(features)  # Shape: (num_images, feature_dim)
 
 # ---------------- ACCURACY EVALUATION ----------------
+# Extract class name from filename 
 def extract_class(filename, train_lookup):
     if "_" in filename:
         parts = filename.split("_")
@@ -148,6 +158,7 @@ def extract_class(filename, train_lookup):
             return "_".join(parts[:-1])
     return train_lookup.get(os.path.basename(filename), "unknown")
 
+# Compute top-k accuracy based on filename class matches
 def calculate_top_k_accuracy(query_paths, gallery_paths, similarities, train_lookup, k):
     correct = 0
     total = 0
@@ -167,6 +178,7 @@ def calculate_top_k_accuracy(query_paths, gallery_paths, similarities, train_loo
     return acc
 
 # ---------------- METRICS SAVE ----------------
+# Store evaluation metrics in a JSON file for comparyson and analysis between runs
 def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None):
@@ -198,7 +210,6 @@ def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
     res["groupname"] = groupname
     res["images"] = results
     res = json.dumps(res)
-    # print(res)
     response = requests.post(url, res)
     try:
         result = json.loads(response.text)
@@ -206,26 +217,33 @@ def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
     except json.JSONDecodeError:
         print(f"ERROR: {response.text}")
 
-
 # ---------------- MAIN SCRIPT ----------------
+# Setup and execution of full pipeline
 start_time = time.time()
+
+# Load model and optionally fine-tune
 model = initialize_model(resnet_version, pretrained=True, feature_extract=not fine_tune)
 if fine_tune:
     num_classes = len(train_dataset.classes)
     model, optimizer = fine_tune_model(model, num_classes, learning_rate)
-    final_loss = train_model(model, train_loader, optimizer=optimizer)
-
+    final_loss = train_model(model, train_loader)
 else:
-    model.fc = nn.Identity()
+    model.fc = nn.Identity()  # Use as feature extractor
     final_loss = None
+
+# Compute features for queries and gallery images
 query_features = extract_features(model, query_loader)
 gallery_features = extract_features(model, gallery_loader)
+
+# Compute cosine similarity between query and gallery features
 similarities = cosine_similarity(query_features, gallery_features)
 I = np.argsort(similarities, axis=1)[:, -k:][:, ::-1]
+
+# Reconstruct file paths
 query_paths = [os.path.join(test_query_dir, name) for name in query_dataset.image_files]
 gallery_paths = [os.path.join(test_gallery_dir, name) for name in gallery_dataset.image_files]
 
-# TRAIN_LOOKUP for class inference
+# Create mapping from filename to class name for evaluation
 TRAIN_LOOKUP = {}
 for class_name in os.listdir(train_dir):
     class_path = os.path.join(train_dir, class_name)
@@ -235,11 +253,14 @@ for class_name in os.listdir(train_dir):
         if fname.lower().endswith(('.jpg', '.png')):
             TRAIN_LOOKUP[fname] = class_name
 
+# Build submission dictionary
 submission = {}
 for qi, qpath in enumerate(query_paths):
     qname = os.path.basename(qpath)
     retrieved = [os.path.basename(gallery_paths[i]) for i in I[qi]]
     submission[qname] = retrieved
+
+# Save to JSON
 sub_dir = os.path.join(BASE_DIR, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
 out_path = os.path.join(sub_dir, f"sub_{resnet_version}.json")
@@ -247,6 +268,7 @@ with open(out_path, "w") as f:
     json.dump(submission, f, indent=2)
 print(f"Done! {len(submission)} queries written to: {out_path}")
 
+# Evaluate and log results
 top_k_acc = calculate_top_k_accuracy(query_paths, gallery_paths, similarities, TRAIN_LOOKUP, k)
 runtime = time.time() - start_time
 save_metrics_json(
@@ -261,4 +283,5 @@ save_metrics_json(
     final_loss=final_loss
 )
 
+# Submit results to server
 submit(submission, groupname="Stochastic thr")
