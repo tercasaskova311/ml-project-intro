@@ -2,9 +2,20 @@
 .venv/ 
 
 # Ignore data and images
-#!data/README.md  # optional placeholder
 data/
+<<<<<<< HEAD
 data_flower/
 data_fruits/
 data_original/
 data_old/
+=======
+data_original/
+data_flower/
+data_fruit/
+data_old/
+azure-venv/
+data_animals/
+__MACOSX/
+test.zip/
+train.zip/
+>>>>>>> 30k_dataset

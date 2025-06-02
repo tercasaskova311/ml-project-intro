@@ -12,12 +12,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 from datetime import datetime
 
 # -------------------- CONFIGURATION --------------------
-K = 5  # Number of top similar images to retrieve
-BATCH_SIZE = 16  # Batch size for feature extraction
+K = 10
+BATCH_SIZE = 32
 MODEL_NAME = "facebook/dinov2-base"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Dynamically get paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 QUERY_DIR = os.path.join(BASE_DIR, "data", "test", "query")
 GALLERY_DIR = os.path.join(BASE_DIR, "data", "test", "gallery")
@@ -53,24 +52,28 @@ class ImagePathDataset(Dataset):
         return self.transform(img), os.path.basename(self.image_paths[idx])
 
 # -------------------- FEATURE EXTRACTION --------------------
+@torch.no_grad()
 def extract_features(dataset):
     loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False)
     all_features, all_filenames = [], []
 
-    with torch.no_grad():
-        for images, filenames in tqdm(loader, desc="Extracting features"):
-            images = images.to(DEVICE)
-            feats = model(images).last_hidden_state.mean(dim=1)
-            all_features.append(feats.cpu().numpy())
-            all_filenames.extend(filenames)
+    for images, filenames in tqdm(loader, desc="Extracting features"):
+        images = images.to(DEVICE)
+        feats = model(images).last_hidden_state.mean(dim=1)
+        all_features.append(feats.cpu().numpy())
+        all_filenames.extend(filenames)
 
     return np.vstack(all_features), all_filenames
 
-# -------------------- METRICS SAVE --------------------
-import os
-import json
-from datetime import datetime
+# -------------------- CLASS EXTRACTION --------------------
+def extract_class(filename, train_lookup):
+    if "_" in filename:
+        parts = filename.split("_")
+        if len(parts) >= 2 and not parts[0].isdigit():
+            return "_".join(parts[:-1])
+    return train_lookup.get(os.path.basename(filename), "unknown")
 
+# -------------------- METRICS SAVE --------------------
 def save_metrics_json(
     model_name,
     top_k_accuracy,
@@ -82,7 +85,10 @@ def save_metrics_json(
     num_epochs=None,
     final_loss=None
 ):
+<<<<<<< HEAD
     # Use the script's directory to resolve path robustly
+=======
+>>>>>>> 30k_dataset
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
@@ -108,11 +114,41 @@ def save_metrics_json(
         json.dump(metrics, f, indent=2)
 
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
+<<<<<<< HEAD
+=======
+
+import requests
+import json
+
+def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
+    res = {}
+    res["groupname"] = groupname
+    res["images"] = results
+    res = json.dumps(res)
+    # print(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
+>>>>>>> 30k_dataset
 
 # -------------------- MAIN SCRIPT --------------------
 def main(k=K):
     start_time = time.time()
     print(f"[INFO] Starting DINOv2 Retrieval (top-{k})...")
+
+    # Build TRAIN_LOOKUP
+    TRAIN_LOOKUP = {}
+    train_dir = os.path.join(BASE_DIR, "data", "training")
+    for class_name in os.listdir(train_dir):
+        class_dir = os.path.join(train_dir, class_name)
+        if not os.path.isdir(class_dir):
+            continue
+        for img_name in os.listdir(class_dir):
+            if img_name.lower().endswith(('.jpg', '.png')):
+                TRAIN_LOOKUP[img_name] = class_name
 
     # Load datasets
     query_dataset = ImagePathDataset(QUERY_DIR, transform)
@@ -123,21 +159,30 @@ def main(k=K):
     gallery_features, gallery_filenames = extract_features(gallery_dataset)
 
     # Compute top-k similarity
-    results =  {}
+    results = {}
     correct = 0
+    total = 0
     for i, q_feat in enumerate(query_features):
         sims = cosine_similarity(q_feat.reshape(1, -1), gallery_features)[0]
         topk = np.argsort(sims)[::-1][:k]
         retrieved = [gallery_filenames[j] for j in topk]
         results[query_filenames[i]] = retrieved
-        # Accuracy calculation
-        q_class = query_filenames[i].split("_")[0]
-        retrieved_classes = [name.split("_")[0] for name in retrieved]
+
+        q_class = extract_class(query_filenames[i], TRAIN_LOOKUP)
+        if q_class == "unknown":
+            continue
+        retrieved_classes = [extract_class(fn, TRAIN_LOOKUP) for fn in retrieved]
         if q_class in retrieved_classes:
             correct += 1
+        total += 1
 
+<<<<<<< HEAD
     top_k_acc = correct / len(query_filenames)
     print(f"Top-{k} Accuracy: {top_k_acc:.4f}")
+=======
+    top_k_acc = correct / total if total > 0 else 0.0
+    print(f"Top-{k} Accuracy (valid queries only): {top_k_acc:.4f}")
+>>>>>>> 30k_dataset
 
     # Save submission
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
@@ -148,16 +193,17 @@ def main(k=K):
     # Save metrics
     runtime = time.time() - start_time
     save_metrics_json(
-    model_name="dinov2-base",
-    top_k_accuracy=top_k_acc,
-    batch_size=BATCH_SIZE,
-    is_finetuned=False,
-    runtime=runtime,
-    loss_function="None",  # No loss function used
-    num_epochs=None,
-    final_loss=None
-)
+        model_name="dinov2-base",
+        top_k_accuracy=top_k_acc,
+        batch_size=BATCH_SIZE,
+        is_finetuned=False,
+        runtime=runtime,
+        loss_function="None",
+        num_epochs=None,
+        final_loss=None
+    )
 
+    submit(results, groupname="Stochastic thr")
 
 if __name__ == "__main__":
     main()

@@ -1,50 +1,29 @@
 import os
+import json
+import time
 import torch
 import clip
-from PIL import Image
-import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.pyplot as plt
+from PIL import Image, UnidentifiedImageError
+from tqdm import tqdm
+from datetime import datetime
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from sklearn.metrics import accuracy_score
-import json
-from datetime import datetime
+from sklearn.metrics.pairwise import cosine_similarity
+import requests
 
-
-k=5
-batch_size= 16
-FINE_TUNE = False  # Set to False to skip training
-TRAIN_LAST_LAYER_ONLY = False  # Set to False to fine-tune entire model
-epochs = 1
+# ---------------- CONFIGURATION ----------------
+k = 10
+batch_size = 2
+FINE_TUNE = True
+TRAIN_LAST_LAYER_ONLY = True
+epochs = 5
 lr = 1e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-# image_size = (224, 224)
-# normalize_mean = [0.485, 0.456, 0.406]
-# normalize_std = [0.229, 0.224, 0.225]
-class ImageTextDataset(Dataset):
-    def __init__(self, root_folder, transform):
-        self.transform = transform
-        self.img_paths = []
-        self.labels = []
-        # Walk through subfolders
-        for label_name in os.listdir(root_folder):
-            label_path = os.path.join(root_folder, label_name)
-            if os.path.isdir(label_path):
-                for img_file in os.listdir(label_path):
-                    self.img_paths.append(os.path.join(label_path, img_file))
-                    self.labels.append(label_name)  # folder name as label
-
-    def __len__(self):
-        return len(self.img_paths)
-
-    def __getitem__(self, idx):
-        image = Image.open(self.img_paths[idx]).convert("RGB")
-        image = self.transform(image)
-        label = self.labels[idx]
-        return image, label, os.path.basename(self.img_paths[idx])
-
-model, preprocess = clip.load("ViT-B/32", device=device)
+# ---------------- MODEL & TRANSFORM ----------------
+model, preprocess = clip.load("ViT-L/14", device=device)
 
 if not FINE_TUNE:
     for param in model.parameters():
@@ -59,65 +38,106 @@ else:
     for param in model.parameters():
         param.requires_grad = True
 
+class ClipClassifier(torch.nn.Module):
+    def __init__(self, clip_model, num_classes):
+        super().__init__()
+        self.clip = clip_model
+        self.fc = torch.nn.Linear(clip_model.visual.output_dim, num_classes)
+
+    def forward(self, x):
+        with torch.no_grad():
+            x = self.clip.encode_image(x).float()
+        x = x / x.norm(dim=-1, keepdim=True)
+        return self.fc(x)
+
+# ---------------- DATASET ----------------
+class ImageFolderDataset(Dataset):
+    def __init__(self, root_folder, transform):
+        self.transform = transform
+        self.img_paths = []
+        self.labels = []
+        self.class_to_idx = {}
+        self.idx_to_class = {}
+        for idx, class_name in enumerate(sorted(os.listdir(root_folder))):
+            class_path = os.path.join(root_folder, class_name)
+            if os.path.isdir(class_path):
+                self.class_to_idx[class_name] = idx
+                self.idx_to_class[idx] = class_name
+                for img_file in os.listdir(class_path):
+                    if img_file.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif')):  # FIX
+                        self.img_paths.append(os.path.join(class_path, img_file))
+                        self.labels.append(idx)
+
+    def __len__(self):
+        return len(self.img_paths)
+
+    def __getitem__(self, idx):
+        image = Image.open(self.img_paths[idx]).convert("RGB")
+        image = self.transform(image)
+        label = self.labels[idx]
+        return image, label, os.path.basename(self.img_paths[idx])
+
+# ---------------- FUNCTIONS ----------------
 def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     loss_fn = torch.nn.CrossEntropyLoss()
-    final_loss = None
-
+    final_loss = 0.0
     for epoch in range(epochs):
         running_loss = 0.0
-
         for images, labels, _ in train_loader:
             images = images.to(device)
-
-            # Tokenize text labels
-            texts = clip.tokenize(labels).to(device)
-
-            # Forward pass
-            image_features = model.encode_image(images)
-            text_features = model.encode_text(texts)
-
-            # Normalize features
-            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
-            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-
-            # Compute logits
-            logits_per_image = image_features @ text_features.t()
-            logits_per_text = text_features @ image_features.t()
-
-            # Diagonal ground truth
-            ground_truth = torch.arange(len(images), device=device)
-
-            # Symmetric contrastive loss
-            loss = (loss_fn(logits_per_image, ground_truth) + loss_fn(logits_per_text, ground_truth)) / 2
-
+            labels = labels.to(device)
+            outputs = model(images)
+            loss = loss_fn(outputs, labels)
+            if torch.isnan(loss):
+                print("⚠️ Loss is NaN, skipping batch")
+                continue
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
             running_loss += loss.item()
-
         final_loss = running_loss / len(train_loader)
         print(f"Epoch {epoch+1}/{epochs} - Loss: {final_loss:.4f}")
-
     return final_loss
 
+def encode_images(image_folder, model, preprocess, batch_size=2):
+    image_paths = sorted([
+        os.path.join(image_folder, f)
+        for f in os.listdir(image_folder)
+        if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp', '.gif'))
+    ])
+    features = []
+    valid_paths = []
+    model.eval()
 
-def encode_images(image_folder, model, preprocess):
-    image_paths = sorted([os.path.join(image_folder, f) for f in os.listdir(image_folder)])
-    images = [preprocess(Image.open(p).convert("RGB")) for p in image_paths]
-    images = torch.stack(images).to(device)
+    for i in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[i:i + batch_size]
+        batch_images = []
+        current_valid_paths = []
+        for p in batch_paths:
+            try:
+                img = preprocess(Image.open(p).convert("RGB"))
+                batch_images.append(img)
+                current_valid_paths.append(p)
+            except UnidentifiedImageError:
+                print(f"⚠️ Skipping invalid image file: {p}")
+        if not batch_images:
+            continue
+        batch_tensor = torch.stack(batch_images).to(device)
+        with torch.no_grad():
+            batch_features = model.encode_image(batch_tensor).float()
+            batch_features /= batch_features.norm(dim=-1, keepdim=True)
+            features.append(batch_features.cpu())
+            valid_paths.extend(current_valid_paths)
+        torch.cuda.empty_cache()
 
-    with torch.no_grad():
-        features = model.encode_image(images)
-        features /= features.norm(dim=-1, keepdim=True)
-    return features, image_paths
+    return torch.cat(features, dim=0).to(device), valid_paths
+
 
 def retrieve(query_features, gallery_features, query_paths, gallery_paths, k):
-    similarities = query_features @ gallery_features.T  # cosine similarity matrix
+    similarities = query_features @ gallery_features.T
     topk_values, topk_indices = similarities.topk(k, dim=-1)
-
     results = {}
     for i in range(query_features.shape[0]):
         query_filename = os.path.basename(query_paths[i])
@@ -125,67 +145,31 @@ def retrieve(query_features, gallery_features, query_paths, gallery_paths, k):
         results[query_filename] = retrieved_filenames
     return results
 
-GALLERY_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "test", "gallery"))
+def extract_class(filename, *_):
+    return filename.split('_')[0]
 
-
-def visualize_retrieval(query_paths, retrieval_results, k=5):
-    for query_path in query_paths:
-        qfile = os.path.basename(query_path)
-        if qfile not in retrieval_results:
-            print(f"[⚠️] {qfile} not found in retrieval results. Skipping.")
-            continue
-
-        plt.figure(figsize=(18, 4))
-        
-        # Show query image
-        plt.subplot(1, k + 1, 1)
-        plt.title("Query")
-        plt.axis("off")
-        plt.imshow(Image.open(query_path))
-
-        # Show top-k retrieved images
-        for j, img_name in enumerate(retrieval_results[qfile][:k]):
-            gallery_img_path = os.path.join(GALLERY_ROOT, img_name)
-            if not os.path.exists(gallery_img_path):
-                print(f"[❌] File not found: {gallery_img_path}")
-                continue
-            plt.subplot(1, k + 1, j + 2)
-            plt.title(f"Rank {j + 1}")
-            plt.axis("off")
-            plt.imshow(Image.open(gallery_img_path))
-
-        plt.tight_layout()
-        plt.show()
-
-def compute_accuracy(query_labels, retrieval_results, gallery_labels):
+def calculate_top_k_accuracy(query_paths, retrievals, *_ , k=10):
     correct = 0
-    for i, retrieved_imgs in enumerate(retrieval_results):
-        # Check if any retrieved image has the same label as query
-        query_label = query_labels[i]
-        retrieved_labels = [gallery_labels[os.path.basename(p)] for p in retrieved_imgs]
-        if query_label in retrieved_labels:
+    total = 0
+    for qname in query_paths:
+        qfile = os.path.basename(qname)
+        q_class = extract_class(qfile)
+        retrieved_classes = [extract_class(name) for name in retrievals[qfile]]
+        if q_class in retrieved_classes:
             correct += 1
-    return correct / len(query_labels)
+        total += 1
+    acc = correct / total if total > 0 else 0.0
+    print(f"Top-{k} Accuracy (valid queries only): {acc:.4f}")
+    return acc
 
-
-def save_metrics_json(
-    model_name,
-    top_k_accuracy,
-    batch_size,
-    is_finetuned,
-    num_classes=None,
-    runtime=None,
-    loss_function="CrossEntropyLoss",
-    num_epochs=None,
-    final_loss=None
-):
+def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
+                      num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
+                      num_epochs=None, final_loss=None):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
-
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
-
     metrics = {
         "model_name": model_name,
         "run_id": timestamp,
@@ -199,85 +183,80 @@ def save_metrics_json(
         "num_epochs": num_epochs,
         "final_train_loss": round(final_loss, 4) if final_loss is not None else None
     }
-
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
+    print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
-    print(f"📁 Metrics saved to: {os.path.abspath(out_path)}")
-import time
+def submit(results, groupname="stochastic thr", url="http://65.108.245.177:3001/retrieval/"):
+    res = {
+        "groupname": groupname,
+        "images": results
+    }
+    res = json.dumps(res)
+    response = requests.post(url, res)
+    try:
+        result = json.loads(response.text)
+        print(f"accuracy is {result['accuracy']}")
+    except json.JSONDecodeError:
+        print(f"ERROR: {response.text}")
+
+# ---------------- MAIN EXECUTION ----------------
 start_time = time.time()
-
-# --- Path setup ---
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ml-project-intro/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
-
 training_dir = os.path.join(DATA_DIR, "training")
 query_dir = os.path.join(DATA_DIR, "test", "query")
 gallery_dir = os.path.join(DATA_DIR, "test", "gallery")
 
-# --- Dataset ---
-transform = preprocess
-train_dataset = ImageTextDataset(training_dir, transform=preprocess)
-train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
+train_dataset = ImageFolderDataset(training_dir, transform=preprocess)
+# train_loader = DataLoader(train_dataset, batch_size, shuffle=True)
+train_loader = DataLoader(
+    train_dataset,
+    batch_size=batch_size,
+    shuffle=True,
+    num_workers=4,       # o 2 se sei su una macchina meno potente
+    pin_memory=True      # migliora le prestazioni su CUDA
+)
 
-# --- Optional fine-tuning ---
-if FINE_TUNE:
-    final_loss = fine_tune_clip(train_loader, model)
-else:
-    final_loss = None
 
-# --- Feature encoding ---
-gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
-query_features, query_paths = encode_images(query_dir, model, preprocess)
+classifier = ClipClassifier(model, num_classes=len(train_dataset.class_to_idx)).to(device)
+final_loss = fine_tune_clip(train_loader, classifier) if FINE_TUNE else None
 
-# --- Retrieval ---
+with torch.no_grad():
+    gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
+    query_features, query_paths = encode_images(query_dir, model, preprocess)
+
 retrieval_results = retrieve(query_features, gallery_features, query_paths, gallery_paths, k)
-print(f"Retrieved {k} samples for each query image.")
-# --- Save submission JSON ---
-submission = {}
-for qname in query_paths:
-    qfile = os.path.basename(qname)
-    submission[qfile] = retrieval_results[qfile]
 
+TRAIN_LOOKUP = {}
+for class_name in os.listdir(training_dir):
+    class_dir = os.path.join(training_dir, class_name)
+    if not os.path.isdir(class_dir):
+        continue
+    for img_name in os.listdir(class_dir):
+        if img_name.lower().endswith(('.jpg', '.png')):
+            TRAIN_LOOKUP[img_name] = class_name
 
-
+submission = {os.path.basename(q): retrieval_results[os.path.basename(q)] for q in query_paths}
 sub_dir = os.path.join(BASE_DIR, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
 sub_path = os.path.join(sub_dir, "sub_clip.json")
 with open(sub_path, "w") as f:
     json.dump(submission, f, indent=2)
-
 print(f"Submission saved to: {os.path.abspath(sub_path)}")
+submit(submission, groupname="Stochastic thr")
 
-# --- Compute top-k accuracy ---
-def calculate_top_k_accuracy(query_paths, retrievals, k=10):
-    correct = 0
-    for qname in query_paths:
-        qfile = os.path.basename(qname)
-        q_class = qfile.split("_")[0]
-        retrieved_classes = [os.path.basename(p).split("_")[0] for p in retrievals[qfile]]
-        if q_class in retrieved_classes:
-            correct += 1
-    acc = correct / len(query_paths)
-    print(f"Top-{k} Accuracy: {acc:.4f}")
-    return acc
-
-
-top_k_acc = calculate_top_k_accuracy(query_paths, retrieval_results, k=k)
-
-# --- Save metrics ---
+top_k_acc = calculate_top_k_accuracy(query_paths, retrieval_results, TRAIN_LOOKUP, k=k)
 runtime = time.time() - start_time
+
 save_metrics_json(
-    model_name="clip-vit-b32",  # o altro, se diverso
+    model_name="clip-vit-b32",
     top_k_accuracy=top_k_acc,
     batch_size=batch_size,
     is_finetuned=FINE_TUNE,
-    num_classes=None,
+    num_classes=len(train_dataset.class_to_idx),
     runtime=runtime,
     loss_function="CrossEntropyLoss",
     num_epochs=epochs,
     final_loss=final_loss
 )
-
-# --- Optional visualization ---
-visualize_retrieval(query_paths, retrieval_results, k)
