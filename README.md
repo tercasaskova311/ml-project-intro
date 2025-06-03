@@ -23,7 +23,7 @@ Each image in `training/` is used to learn class-discriminative embeddings. Retr
 
 ---
 
-## 🚀 Models Implemented
+## Models Implemented
 
 | Model         | Type      | Variants         | Fine-tuning | Pooling     | Script                         |
 |---------------|-----------|------------------|-------------|-------------|--------------------------------|
