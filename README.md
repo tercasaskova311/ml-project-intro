@@ -1,7 +1,7 @@
 
 # Image Retrieval with Deep Learning
 
-This repository contains our solution to the **Image Retrieval Competition** held in the *Intro to Machine Learning* course at the University of Trento. The objective was to develop a pipeline that retrieves the **Top-k most semantically similar gallery images** for each query image.
+This repository contains our solution to the **Image Retrieval Competition** held in the **Intro to Machine Learning** course at the University of Trento. The objective was to develop a pipeline that retrieves the **Top-k most similar images** for each query image.
 
 We implemented and evaluated multiple deep learning models, including CLIP, DINOv2, EfficientNet, ResNet, and GoogLeNet, exploring different pooling strategies (GeM vs GAP) and fine-tuning settings.
 
@@ -30,7 +30,7 @@ Each image in `training/` is used to learn class-discriminative embeddings. Retr
 | CLIP          | ViT       | ViT-B/32, B/16, L/14 | ✅ / (Last layer) | Internal    | `Clip.py`                      |
 | DINOv2        | ViT       | ViT-B/14          | ✅ / ❌     | GAP         | `dino2_retrieval_*.py`         |
 | EfficientNet  | CNN       | B0, B3            | ✅ / ❌     | GeM / GAP   | `EfficientNet.py`              |
-| ResNet        | CNN       | 18, 34, 50, 101, 152 | ✅ / ❌   | GAP         | `ResNet.py`                    |
+| ResNet        | CNN       | 34, 50, 101, 152 | ✅ / ❌   | GAP         | `ResNet.py`                    |
 | GoogLeNet     | CNN       | base              | ✅ / ❌     | GeM / GAP   | `GoogleNet_gem_gap.py`         |
 
 Each script supports standalone execution and produces:
