@@ -1,6 +1,7 @@
+
 # Image Retrieval with Deep Learning
 
-This repository contains our solution to the **Image Retrieval Competition** held in the *Intro to Machine Learning* course at the University of Trento (2025 edition). The objective was to develop a pipeline that retrieves the **Top-k most semantically similar gallery images** for each query image.
+This repository contains our solution to the **Image Retrieval Competition** held in the *Intro to Machine Learning* course at the University of Trento. The objective was to develop a pipeline that retrieves the **Top-k most semantically similar gallery images** for each query image.
 
 We implemented and evaluated multiple deep learning models, including CLIP, DINOv2, EfficientNet, ResNet, and GoogLeNet, exploring different pooling strategies (GeM vs GAP) and fine-tuning settings.
 
@@ -10,26 +11,27 @@ We implemented and evaluated multiple deep learning models, including CLIP, DINO
 
 The dataset is structured as follows:
 
+```
 data/
- ├── training/  -> Labeled training images in class folders
- └── test/
-  ├── query/ -> Unlabeled query images
-  └── gallery/ -> Unlabeled gallery images
-
+├── training/           # Labeled training images in class folders
+└── test/
+    ├── query/          # Unlabeled query images
+    └── gallery/        # Unlabeled gallery images
+```
 
 Each image in `training/` is used to learn class-discriminative embeddings. Retrieval is evaluated based on how well query images retrieve same-class samples from the gallery.
 
 ---
 
-## Models Implemented NEEDS TO BE CHANGED
+## 🚀 Models Implemented
 
-| Model       | Variants       | Fine-tuning | Pooling     | Script File                    |
-|-------------|----------------|-------------|-------------|--------------------------------|
-| **CLIP**    | ViT-L/14       | ✅           | internal    | `Clip.py`                      |
-| **DINOv2**  | ViT-B/14       | ✅/❌         | GAP         | `dino2_retrieval_*.py`         |
-| **EffNet**  | B0, B3         | ✅/❌         | GeM or GAP  | `EfficientNet.py`              |
-| **ResNet**  | 18–152         | ✅/❌         | GAP         | `ResNet.py`                    |
-| **GoogLeNet**| base          | ✅/❌         | GeM or GAP  | `GoogleNet_gem_gap.py`         |
+| Model         | Type      | Variants         | Fine-tuning | Pooling     | Script                         |
+|---------------|-----------|------------------|-------------|-------------|--------------------------------|
+| CLIP          | ViT       | ViT-B/32, B/16, L/14 | ✅ / (Last layer) | Internal    | `Clip.py`                      |
+| DINOv2        | ViT       | ViT-B/14          | ✅ / ❌     | GAP         | `dino2_retrieval_*.py`         |
+| EfficientNet  | CNN       | B0, B3            | ✅ / ❌     | GeM / GAP   | `EfficientNet.py`              |
+| ResNet        | CNN       | 18, 34, 50, 101, 152 | ✅ / ❌   | GAP         | `ResNet.py`                    |
+| GoogLeNet     | CNN       | base              | ✅ / ❌     | GeM / GAP   | `GoogleNet_gem_gap.py`         |
 
 Each script supports standalone execution and produces:
 - Feature extraction
@@ -39,40 +41,59 @@ Each script supports standalone execution and produces:
 
 ---
 
+## Datasets Used for Testing
+
+In addition to the competition dataset, given on competition day, we used the following public datasets to test and validate our models:
+
+- [Fruit and Vegetable Disease Dataset](https://www.kaggle.com/datasets/muhammad0subhan/fruit-and-vegetable-disease-healthy-vs-rotten)  
+- [Animal Image Dataset (90 Categories)](https://www.kaggle.com/datasets/iamsouravbanerjee/animal-image-dataset-90-different-animals)
+
+---
+
+## Competition Task
+
+> The goal of the competition was **image retrieval**. The task consisted of matching **real photos of celebrities** (queries) with **synthetic images** (gallery) of the same celebrities, generated in a different visual style.  
+> For each query image, participants needed to retrieve the 10 most likely matching gallery images.
+
+---
+
 ## How to Run
 
 1. Clone the repository:
    ```bash
    git clone https://github.com/YOUR_USERNAME/ml-project-intro.git
    cd ml-project-intro
+   ```
 
-2. **Install dependencies**  
+2. Install dependencies:  
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Run a model script**  
-   For example, to run the CLIP-based retrieval pipeline:  
+3. Run a model script:  
+   Example with CLIP:
    ```bash
-   python models/Clip.py
+   python Clip.py
    ```
 
-4. **Evaluate aggregated metrics**  
+4. Evaluate aggregated metrics:  
    ```bash
    python src/metrics_analysis.py
    ```
+   This script prints the performance of all your runs (if you've saved the JSONs correctly in `results/`).
 
-5. **Visualize retrieval results**  
+5. Visualize retrieval results:  
    ```bash
    python src/visualize_submission.py
    ```
-   This script works only  if you put your data in the correct directories, specified in the code. 
+   Ensure your dataset is in the correct directory format as expected by the scripts.
 
-6. **Submit results to the evaluation server**  
+6. Submit results to the server:  
    ```bash
    python submit.py
    ```
-   The server only works if you are logged with the university wi-fi.
+   The submission script works **only with the dataset provided during the competition**, which is ignored in Git (see `.gitignore`).  
+   Also, **you must be connected to the University of Trento Wi-Fi** for the server to be reachable.
 
 ---
 
@@ -80,19 +101,19 @@ Each script supports standalone execution and produces:
 
 ### Top-k Accuracy
 
-Top-k Accuracy measures how often the correct class for a query image appears among the top-k retrieved gallery images. In formula form:
+Top-k Accuracy measures how often the correct class for a query image appears among the top-k retrieved gallery images.
 
 ```
 Top-k Accuracy = (Number of queries with at least one correct match in top-k) / (Total number of queries)
 ```
 
-Only the presence of a matching class matters, not the rank.
+Only the presence of a matching class is considered, not its exact position. In our implementation, we extract class labels from filenames and compare each query image’s class to those of its retrieved counterparts to compute Top-k Accuracy.
 
 ---
 
-### Metrics Output Format
+### Metrics Format
 
-Each model script writes one JSON file into the **results/** folder. An example entry:
+Each script generates a JSON file in `results/` that looks like:
 
 ```json
 {
@@ -110,19 +131,13 @@ Each model script writes one JSON file into the **results/** folder. An example 
 }
 ```
 
-To aggregate and compare all saved metrics, run:
-
-```
-python src/metrics_analysis.py
-```
-
-This script prints grouped average scores across runs for comparison.
+Run `python src/metrics_analysis.py` to see aggregated metrics across all runs.
 
 ---
 
 ## Submission Format
 
-Each model generates a JSON file in **submissions/** with this format:
+Each script saves a file like this in `submissions/`:
 
 ```json
 {
@@ -131,51 +146,26 @@ Each model generates a JSON file in **submissions/** with this format:
 }
 ```
 
-To submit this file, the `submit.py` script sends a POST request:
+You can submit your result by calling:
 
 ```python
-submit(results, groupname= groupname , url="http://tatooine.disi.unitn.it:3001/retrieval/")
+submit(results, groupname="groupname")
 ```
-
-The server responds with a “Top-k Accuracy” value computed against ground-truth labels.
 
 ---
 
-## Visual Output
+## Visualization
 
-To generate a side-by-side comparison of query images and their top-k retrievals, run:
+To generate visual comparisons of retrievals:
 
-```
+```bash
 python src/visualize_submission.py
 ```
 
-This creates PNG files under **visualizations/**. Each figure shows the query on the left and the top-k retrieved gallery images on the right. Just be sure you have set the dataset in the correct format and that the directories are right. 
+Make sure that your test set is correctly located under `data/test/query/` and `data/test/gallery/`.
 
 ---
 
-## Requirements
+## Course Context
 
-Install all required Python packages in one step:
-
-```
-pip install -r requirements.txt
-```
-
----
-
-## Authors
-
-**Team:** Stochastic_thr  
-**Course:** Intro to Machine Learning 2024-2025  
-**Institution:** University of Trento
-
----
-
-## Future Work
-
-- Add support for larger CLIP models (e.g., ViT-H/14).  
-- Replace brute-force cosine search with FAISS for faster retrieval.  
-- Experiment with metric learning losses (Triplet, ArcFace).  
-- Ensemble multiple model embeddings or fuse scores.
-
----
+This project was developed as part of the **Introduction to Machine Learning** course in the Master degree in **Data Science** at the **University of Trento** (Academic Year 2024–2025).
