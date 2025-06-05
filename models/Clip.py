@@ -1,3 +1,7 @@
+# =======================
+#        IMPORTS
+# =======================
+# Standard and third-party libraries for file handling, data loading, and network interaction
 import os
 import json
 import time
@@ -10,46 +14,66 @@ from datetime import datetime
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import requests
+import sys
 
-from utils.metrics import top_k_accuracy, precision_at_k
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.metrics import top_k_accuracy, precision_at_k  # Import our custom metric functions
 
-# ---------------- CONFIGURATION ----------------
-k = 10
-batch_size = 2
-FINE_TUNE = True
-TRAIN_LAST_LAYER_ONLY = True
-epochs = 5
-lr = 1e-4
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# =======================
+#    CONFIGURATION
+# =======================
+k = 9  # Number of top-k retrieved images to evaluate per query
+batch_size = 32  # Batch size
+FINE_TUNE = False  # If True, fine-tune the CLIP model on the training dataset
+TRAIN_LAST_LAYER_ONLY = True  # If True, only fine-tune the projection head
+epochs = 10  # Number of training epochs
+lr = 1e-4  # Learning rate for the optimizer
+device = 'cuda' if torch.cuda.is_available() else 'cpu'  # Use GPU if available for performance
 
-# ---------------- MODEL & TRANSFORM ----------------
+# =======================
+#  MODEL INITIALIZATION
+# =======================
+# Load the CLIP model and its preprocessing pipeline
 model, preprocess = clip.load("ViT-L/14", device=device)
 
+# Configure the fine-tuning strategy by setting trainable parameters
 if not FINE_TUNE:
+    # Fully freeze the model — useful for zero-shot or frozen feature extraction
     for param in model.parameters():
         param.requires_grad = False
 elif TRAIN_LAST_LAYER_ONLY:
+    # Train only the projection layer (last part of the visual encoder)
     for name, param in model.named_parameters():
         if "proj" in name or "visual.proj" in name:
             param.requires_grad = True
         else:
             param.requires_grad = False
 else:
+    # Enable full fine-tuning of all model weights
     for param in model.parameters():
         param.requires_grad = True
 
+# =======================
+#  CUSTOM CLASSIFIER
+# =======================
+# Wrap CLIP's visual encoder with a classification head for supervised training
 class ClipClassifier(torch.nn.Module):
     def __init__(self, clip_model, num_classes):
         super().__init__()
         self.clip = clip_model
-        self.fc = torch.nn.Linear(clip_model.visual.output_dim, num_classes)
+        self.fc = torch.nn.Linear(clip_model.visual.output_dim, num_classes)  # New classification layer
 
     def forward(self, x):
+        # Prevent backprop through CLIP's encoder (optional during full fine-tuning)
         with torch.no_grad():
             x = self.clip.encode_image(x).float()
-        x = x / x.norm(dim=-1, keepdim=True)
-        return self.fc(x)
+        x = x / x.norm(dim=-1, keepdim=True)  # Normalize embeddings to unit norm
+        return self.fc(x)  # Project into class logits
 
+# =======================
+#     DATA LOADER
+# =======================
+# Custom dataset for loading images and their labels from a folder structure
 class ImageFolderDataset(Dataset):
     def __init__(self, root_folder, transform):
         self.transform = transform
@@ -57,6 +81,7 @@ class ImageFolderDataset(Dataset):
         self.labels = []
         self.class_to_idx = {}
         self.idx_to_class = {}
+
         for idx, class_name in enumerate(sorted(os.listdir(root_folder))):
             class_path = os.path.join(root_folder, class_name)
             if os.path.isdir(class_path):
@@ -76,6 +101,10 @@ class ImageFolderDataset(Dataset):
         label = self.labels[idx]
         return image, label, os.path.basename(self.img_paths[idx])
 
+# =======================
+#    TRAINING LOGIC
+# =======================
+# Standard supervised training loop using CrossEntropyLoss
 def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
     model.train()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -89,17 +118,24 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
             labels = labels.to(device)
             outputs = model(images)
             loss = loss_fn(outputs, labels)
+
             if torch.isnan(loss):
                 print("Loss is NaN, skipping batch")
                 continue
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
+
         final_loss = running_loss / len(train_loader)
         print(f"Epoch {epoch+1}/{epochs} - Loss: {final_loss:.4f}")
     return final_loss
 
+# =======================
+#   ENCODING IMAGES
+# =======================
+# Computes CLIP embeddings for a folder of images using batch inference
 def encode_images(image_folder, model, preprocess, batch_size=2):
     image_paths = sorted([
         os.path.join(image_folder, f)
@@ -114,6 +150,7 @@ def encode_images(image_folder, model, preprocess, batch_size=2):
         batch_paths = image_paths[i:i + batch_size]
         batch_images = []
         current_valid_paths = []
+
         for p in batch_paths:
             try:
                 img = preprocess(Image.open(p).convert("RGB"))
@@ -121,8 +158,10 @@ def encode_images(image_folder, model, preprocess, batch_size=2):
                 current_valid_paths.append(p)
             except UnidentifiedImageError:
                 print(f"Skipping invalid image file: {p}")
+
         if not batch_images:
             continue
+
         batch_tensor = torch.stack(batch_images).to(device)
         with torch.no_grad():
             batch_features = model.encode_image(batch_tensor).float()
@@ -130,8 +169,13 @@ def encode_images(image_folder, model, preprocess, batch_size=2):
             features.append(batch_features.cpu())
             valid_paths.extend(current_valid_paths)
         torch.cuda.empty_cache()
+
     return torch.cat(features, dim=0).to(device), valid_paths
 
+# =======================
+#     RETRIEVAL STEP
+# =======================
+# Uses cosine similarity to compute top-k most similar images per query
 def retrieve(query_features, gallery_features, query_paths, gallery_paths, k):
     similarities = query_features @ gallery_features.T
     topk_values, topk_indices = similarities.topk(k, dim=-1)
@@ -143,19 +187,20 @@ def retrieve(query_features, gallery_features, query_paths, gallery_paths, k):
     return results
 
 def extract_class(filename, *_):
-    return filename.split('_')[0]
+    return filename.split('_')[0]  # Assumes class name is prefix before '_'
 
+# =======================
+#        METRICS
+# =======================
 def save_metrics_json(model_name, top_k_accuracy, precision, batch_size, is_finetuned,
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None):
-    """
-    Save evaluation metrics to a JSON file in the 'results' directory.
-    """
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    results_dir = os.path.join(project_root, "results")
+    results_dir = os.path.join(project_root, "results_animals")
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
+
     metrics = {
         "model_name": model_name,
         "run_id": timestamp,
@@ -170,14 +215,14 @@ def save_metrics_json(model_name, top_k_accuracy, precision, batch_size, is_fine
         "num_epochs": num_epochs,
         "final_train_loss": round(final_loss, 4) if final_loss is not None else None
     }
+
     with open(out_path, "w") as f:
         json.dump(metrics, f, indent=2)
     print(f"[LOG] Metrics saved to: {os.path.abspath(out_path)}")
 
+
+# Function to submit results to the competition server
 def submit(results, groupname="stochastic thr", url="http://65.108.245.177:3001/retrieval/"):
-    """
-    Submit results to evaluation server.
-    """
     payload = {
         "groupname": groupname,
         "images": results
@@ -190,27 +235,35 @@ def submit(results, groupname="stochastic thr", url="http://65.108.245.177:3001/
     except requests.RequestException as e:
         print(f"[SUBMIT] Submission failed: {e}")
 
-
-# ---------------- MAIN EXECUTION ----------------
+# =======================
+#      MAIN SCRIPT
+# =======================
 start_time = time.time()
+
+# Define root paths for training and test images
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = os.path.join(BASE_DIR, "data_animals")
 training_dir = os.path.join(DATA_DIR, "training")
 query_dir = os.path.join(DATA_DIR, "test", "query")
 gallery_dir = os.path.join(DATA_DIR, "test", "gallery")
 
+# Load training data
 train_dataset = ImageFolderDataset(training_dir, transform=preprocess)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
+# Initialize classifier model
 classifier = ClipClassifier(model, num_classes=len(train_dataset.class_to_idx)).to(device)
 final_loss = fine_tune_clip(train_loader, classifier) if FINE_TUNE else None
 
+# Feature extraction (with no gradient)
 with torch.no_grad():
     gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
     query_features, query_paths = encode_images(query_dir, model, preprocess)
 
+# Run retrieval
 retrieval_results = retrieve(query_features, gallery_features, query_paths, gallery_paths, k)
 
+# Format the submission file 
 submission = {os.path.basename(q): retrieval_results[os.path.basename(q)] for q in query_paths}
 sub_dir = os.path.join(BASE_DIR, "submissions")
 os.makedirs(sub_dir, exist_ok=True)
@@ -219,12 +272,14 @@ with open(sub_path, "w") as f:
     json.dump(submission, f, indent=2)
 print(f"Submission saved to: {os.path.abspath(sub_path)}")
 
+# Compute metrics, taken from utils.metrics
 top_k_acc = top_k_accuracy(query_paths, retrieval_results, k=k)
 prec_at_k = precision_at_k(query_paths, retrieval_results, k=k)
 runtime = time.time() - start_time
 
+# Save metrics as JSON
 save_metrics_json(
-    model_name="clip-vit-b32",
+    model_name="Clip-ViT-L-14",
     top_k_accuracy=top_k_acc,
     precision=prec_at_k,
     batch_size=batch_size,
@@ -235,4 +290,3 @@ save_metrics_json(
     num_epochs=epochs,
     final_loss=final_loss
 )
-
