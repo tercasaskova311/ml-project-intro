@@ -30,7 +30,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'  # Use GPU if available 
 #  MODEL INITIALIZATION
 # =======================
 # Load the CLIP model and its preprocessing pipeline
-model, preprocess = clip.load("ViT-L/14", device=device)
+model, preprocess = clip.load("ViT-B/16", device=device)
 
 # Configure the fine-tuning strategy by setting trainable parameters
 if not FINE_TUNE:
@@ -275,7 +275,7 @@ runtime = time.time() - start_time
 
 # Save metrics as JSON
 save_metrics_json(
-    model_name="Clip-ViT-L-14",
+    model_name="Clip-ViT-B-16",
     top_k_accuracy=top_k_acc,
     precision=prec_at_k,
     batch_size=batch_size,
