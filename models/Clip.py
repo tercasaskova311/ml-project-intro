@@ -1,7 +1,3 @@
-# =======================
-#        IMPORTS
-# =======================
-# Standard and third-party libraries for file handling, data loading, and network interaction
 import os
 import json
 import time
