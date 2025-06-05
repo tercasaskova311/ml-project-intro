@@ -19,9 +19,9 @@ from utils.metrics import top_k_accuracy, precision_at_k  # Import our custom me
 #    CONFIGURATION
 # =======================
 k = 9  # Number of top-k retrieved images to evaluate per query
-batch_size = 32  # Batch size
-FINE_TUNE = False  # If True, fine-tune the CLIP model on the training dataset
-TRAIN_LAST_LAYER_ONLY = True  # If True, only fine-tune the projection head
+batch_size = 64  # Batch size
+FINE_TUNE = True  # If True, fine-tune the CLIP model on the training dataset
+TRAIN_LAST_LAYER_ONLY = False  # If True, only fine-tune the projection head
 epochs = 10  # Number of training epochs
 lr = 1e-4  # Learning rate for the optimizer
 device = 'cuda' if torch.cuda.is_available() else 'cpu'  # Use GPU if available for performance
@@ -57,14 +57,34 @@ class ClipClassifier(torch.nn.Module):
     def __init__(self, clip_model, num_classes):
         super().__init__()
         self.clip = clip_model
-        self.fc = torch.nn.Linear(clip_model.visual.output_dim, num_classes)  # New classification layer
+        self.encoder = torch.nn.Sequential(
+            clip_model.visual, 
+            torch.nn.LayerNorm(clip_model.visual.output_dim)  
+        )
+        self.fc = torch.nn.Linear(clip_model.visual.output_dim, num_classes) 
 
     def forward(self, x):
-        # Prevent backprop through CLIP's encoder (optional during full fine-tuning)
+    # Ensure input has the same dtype as the model (important for CLIP with float16 weights)
+        expected_dtype = self.clip.visual.conv1.weight.dtype
+        x = x.to(dtype=expected_dtype)
+
+        # Encode image using CLIP's visual encoder
+        with torch.no_grad():
+            x = self.clip.encode_image(x).float()  # Note: we .float() here only if needed post-encoding
+
+        x = x / x.norm(dim=-1, keepdim=True)
+        return self.fc(x)
+
+    def extract_features(self, x):
+        expected_dtype = self.clip.visual.conv1.weight.dtype
+        x = x.to(dtype=expected_dtype)
         with torch.no_grad():
             x = self.clip.encode_image(x).float()
-        x = x / x.norm(dim=-1, keepdim=True)  # Normalize embeddings to unit norm
-        return self.fc(x)  # Project into class logits
+        x = x / x.norm(dim=-1, keepdim=True)
+        return x
+
+
+
 
 # =======================
 #     DATA LOADER
@@ -132,7 +152,8 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
 #   ENCODING IMAGES
 # =======================
 # Computes CLIP embeddings for a folder of images using batch inference
-def encode_images(image_folder, model, preprocess, batch_size=2):
+@torch.no_grad()
+def encode_images(image_folder, model, preprocess, batch_size=64):
     image_paths = sorted([
         os.path.join(image_folder, f)
         for f in os.listdir(image_folder)
@@ -159,14 +180,16 @@ def encode_images(image_folder, model, preprocess, batch_size=2):
             continue
 
         batch_tensor = torch.stack(batch_images).to(device)
-        with torch.no_grad():
-            batch_features = model.encode_image(batch_tensor).float()
-            batch_features /= batch_features.norm(dim=-1, keepdim=True)
-            features.append(batch_features.cpu())
-            valid_paths.extend(current_valid_paths)
+
+        # Usa direttamente extract_features del classifier
+        batch_features = model.extract_features(batch_tensor)
+        features.append(batch_features.cpu())
+        valid_paths.extend(current_valid_paths)
+
         torch.cuda.empty_cache()
 
     return torch.cat(features, dim=0).to(device), valid_paths
+
 
 # =======================
 #     RETRIEVAL STEP
@@ -253,8 +276,12 @@ final_loss = fine_tune_clip(train_loader, classifier) if FINE_TUNE else None
 
 # Feature extraction (with no gradient)
 with torch.no_grad():
-    gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
-    query_features, query_paths = encode_images(query_dir, model, preprocess)
+    # Usa il modello aggiornato (con il projection layer fine-tunato)
+    gallery_features, gallery_paths = encode_images(gallery_dir, classifier, preprocess)
+    query_features, query_paths = encode_images(query_dir, classifier, preprocess)
+
+    # gallery_features, gallery_paths = encode_images(gallery_dir, model, preprocess)
+    # query_features, query_paths = encode_images(query_dir, model, preprocess)
 
 # Run retrieval
 retrieval_results = retrieve(query_features, gallery_features, query_paths, gallery_paths, k)
@@ -275,7 +302,7 @@ runtime = time.time() - start_time
 
 # Save metrics as JSON
 save_metrics_json(
-    model_name="Clip-ViT-B-16",
+    model_name="Clip-ViT-B-32",
     top_k_accuracy=top_k_acc,
     precision=prec_at_k,
     batch_size=batch_size,

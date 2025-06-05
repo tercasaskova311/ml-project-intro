@@ -11,21 +11,25 @@ from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms, models
 from sklearn.metrics.pairwise import cosine_similarity
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.metrics import top_k_accuracy, precision_at_k
 
 # ---------------- CONFIG ----------------
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-data_dir = os.path.join(BASE_DIR, 'data')
+data_dir = os.path.join(BASE_DIR, 'data_animals')
 train_dir = os.path.join(data_dir, 'training')
 test_query_dir = os.path.join(data_dir, 'test', 'query')
 test_gallery_dir = os.path.join(data_dir, 'test', 'gallery')
 
 # You can choose any ResNet variant supported by torchvision
 resnet_version = 'resnet152'  # Alternatives: 'resnet34', 'resnet50', # 'resnet101', etc.
-fine_tune = False  # If True, retrain the model on the dataset
+fine_tune = True  # If True, retrain the model on the dataset
 k = 10  # Number of top matches to retrieve
 batch_size = 32  # Batch size 
 num_epochs = 10  # Number of training epochs
-learning_rate = 1e-5  # Learning rate for optimizer
+learning_rate = 5e-5  # Learning rate for optimizer
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # Prefer GPU
 
 # ---------------- DATASET & TRANSFORMS ----------------
@@ -66,11 +70,11 @@ class ImageDatasetWithoutLabels(Dataset):
 
 # Dataset and DataLoaders
 train_dataset = datasets.ImageFolder(train_dir, data_transforms['training'])
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 query_dataset = ImageDatasetWithoutLabels(test_query_dir, transform=data_transforms['test'])
-query_loader = DataLoader(query_dataset, batch_size=batch_size, shuffle=False)
+query_loader = DataLoader(query_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 gallery_dataset = ImageDatasetWithoutLabels(test_gallery_dir, transform=data_transforms['test'])
-gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False)
+gallery_loader = DataLoader(gallery_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
 # ---------------- MODEL ----------------
 def initialize_model(resnet_version=resnet_version, pretrained=True, feature_extract=True):
@@ -158,32 +162,13 @@ def extract_class(filename, train_lookup):
             return "_".join(parts[:-1])
     return train_lookup.get(os.path.basename(filename), "unknown")
 
-# Compute top-k accuracy based on filename class matches
-def calculate_top_k_accuracy(query_paths, gallery_paths, similarities, train_lookup, k):
-    correct = 0
-    total = 0
-    for i, query_sim in enumerate(similarities):
-        query_filename = os.path.basename(query_paths[i])
-        query_class = extract_class(query_filename, train_lookup)
-        if query_class == "unknown":
-            continue
-        top_k_indices = np.argsort(query_sim)[-k:][::-1]
-        retrieved_filenames = [os.path.basename(gallery_paths[j]) for j in top_k_indices]
-        retrieved_classes = [extract_class(name, train_lookup) for name in retrieved_filenames]
-        if query_class in retrieved_classes:
-            correct += 1
-        total += 1
-    acc = correct / total if total > 0 else 0.0
-    print(f"Top-{k} Accuracy (valid queries only): {acc:.4f}")
-    return acc
-
 # ---------------- METRICS SAVE ----------------
 # Store evaluation metrics in a JSON file for comparyson and analysis between runs
-def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
+def save_metrics_json(model_name, top_k_accuracy, precision, batch_size, is_finetuned,
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    results_dir = os.path.join(project_root, "results")
+    results_dir = os.path.join(project_root, "results_animals")
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
@@ -192,6 +177,7 @@ def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned,
         "run_id": timestamp,
         "top_k": k,
         "top_k_accuracy": round(top_k_accuracy, 4),
+        "precision_at_k": round(precision, 4),
         "batch_size": batch_size,
         "is_finetuned": is_finetuned,
         "num_classes": num_classes,
@@ -269,11 +255,19 @@ with open(out_path, "w") as f:
 print(f"Done! {len(submission)} queries written to: {out_path}")
 
 # Evaluate and log results
-top_k_acc = calculate_top_k_accuracy(query_paths, gallery_paths, similarities, TRAIN_LOOKUP, k)
+query_filenames = [os.path.basename(p) for p in query_paths]
+top_k_acc = top_k_accuracy(query_filenames, submission, k=k)
+prec_at_k = precision_at_k(query_filenames, submission, k=k)
+
+print(f"Top-{k} Accuracy: {top_k_acc:.4f}")
+print(f"Precision@{k}: {prec_at_k:.4f}")
+
+# Save metrics to disk
 runtime = time.time() - start_time
 save_metrics_json(
     model_name=resnet_version,
     top_k_accuracy=top_k_acc,
+    precision=prec_at_k,
     batch_size=batch_size,
     is_finetuned=fine_tune,
     num_classes=len(train_dataset.classes),
@@ -284,4 +278,4 @@ save_metrics_json(
 )
 
 # Submit results to server
-submit(submission, groupname="Stochastic thr")
+#submit(submission, groupname="Stochastic thr")

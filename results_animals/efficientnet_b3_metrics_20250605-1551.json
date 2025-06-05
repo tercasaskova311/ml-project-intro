@@ -1,0 +1,15 @@
+{
+  "model_name": "efficientnet_b3",
+  "run_id": "20250605-1551",
+  "top_k": 9,
+  "top_k_accuracy": 0.9741,
+  "precision_at_k": 0.8513,
+  "batch_size": 32,
+  "is_finetuned": true,
+  "num_classes": 90,
+  "runtime_seconds": 255.58,
+  "loss_function": "CrossEntropyLoss",
+  "num_epochs": 10,
+  "final_train_loss": 0.0519,
+  "pooling_type": "GAP"
+}

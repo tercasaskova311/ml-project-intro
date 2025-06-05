@@ -12,23 +12,30 @@ from transformers import AutoImageProcessor, AutoModel
 from sklearn.metrics.pairwise import cosine_similarity
 from datetime import datetime
 import torch.nn as nn
+import requests
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.metrics import top_k_accuracy, precision_at_k
 
 # ---------------- CONFIGURATION ----------------
-K = 10
-EPOCHS = 5 
-BATCH_SIZE = 32
-LR = 1e-5
+K = 9  # top-k for retrieval
+EPOCHS = 10 # number of fine-tuning epochs
+BATCH_SIZE = 32  # batch size for training and feature extraction
+LR = 5e-5  # learning rate
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 MODEL_NAME = "facebook/dinov2-base"
+
+# Base directory and dataset paths
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TRAIN_DIR = os.path.join(BASE_DIR, "data", "training")
-QUERY_DIR = os.path.join(BASE_DIR, "data", "test", "query")
-GALLERY_DIR = os.path.join(BASE_DIR, "data", "test", "gallery")
+TRAIN_DIR = os.path.join(BASE_DIR, "data_animals", "training")
+QUERY_DIR = os.path.join(BASE_DIR, "data_animals", "test", "query")
+GALLERY_DIR = os.path.join(BASE_DIR, "data_animals", "test", "gallery")
 OUTPUT_PATH = os.path.join(BASE_DIR, "submissions", "sub_dino2_finetune.json")
 
 # ---------------- TRANSFORM ----------------
-# Normalization settings are automatically adapted from the model's config
+# Use model-specific normalization
 processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -36,25 +43,45 @@ transform = transforms.Compose([
     transforms.Normalize(mean=processor.image_mean, std=processor.image_std)
 ])
 
-# ---------------- MODEL: DINO + HEAD ----------------
+# ---------------- MODEL DEFINITION ----------------
+# Wrap DINOv2 with a classification head for fine-tuning and feature extraction
 class DinoClassifier(nn.Module):
     def __init__(self, dinov2, num_classes):
         super().__init__()
         self.dino = dinov2
         for param in self.dino.parameters():
-            param.requires_grad = False
+            param.requires_grad = False  # Freeze all backbone weights
+
+        # Classification head (fine-tunable layer)
         self.head = nn.Linear(self.dino.config.hidden_size, num_classes)
 
     def forward(self, x):
+        # During classification training: use frozen features + classification head
         with torch.no_grad():
-            feats = self.dino(x).last_hidden_state.mean(dim=1)
+            feats = self.dino(pixel_values=x).last_hidden_state.mean(dim=1)
         return self.head(feats)
 
     def extract_features(self, x):
+        """
+        Extract normalized embeddings from images (used during retrieval).
+        This method runs the backbone and classification head (if attached),
+        then normalizes the resulting embeddings.
+        """
+        self.eval()
         with torch.no_grad():
-            return self.dino(x).last_hidden_state.mean(dim=1)
+            # Forward through frozen DINO backbone
+            feats = self.dino(pixel_values=x).last_hidden_state.mean(dim=1)
 
-# ---------------- TRAINING FUNCTION ----------------
+            # Pass through the classification head (optional but improves separation)
+            feats = self.head(feats)
+
+            # Normalize features to unit length for cosine similarity
+            feats = feats / feats.norm(dim=-1, keepdim=True)
+            return feats
+
+
+# ---------------- TRAINING ----------------
+# Fine-tune the classification head using CrossEntropy loss
 def train_head(model, dataloader, optimizer, criterion):
     model.train()
     final_loss = None
@@ -74,7 +101,8 @@ def train_head(model, dataloader, optimizer, criterion):
         print(f"Loss: {final_loss:.4f}")
     return final_loss
 
-# ---------------- RETRIEVAL DATASET ----------------
+# ---------------- CUSTOM DATASET ----------------
+# Loads image paths and returns (image_tensor, filename)
 class ImagePathDataset(torch.utils.data.Dataset):
     def __init__(self, folder, transform):
         self.paths = [os.path.join(folder, f) for f in os.listdir(folder) if f.endswith((".jpg", ".png"))]
@@ -88,8 +116,9 @@ class ImagePathDataset(torch.utils.data.Dataset):
         img = Image.open(path).convert("RGB")
         return self.transform(img), os.path.basename(path)
 
-# ---------------- FEATURE EXTRACTOR ----------------
-def extract_features(model, folder):
+# ---------------- FEATURE EXTRACTION ----------------
+# Extract embeddings using the feature extractor
+def get_features_from_dir(model, folder):
     dataset = ImagePathDataset(folder, transform)
     loader = DataLoader(dataset, batch_size=16, shuffle=False)
     features, filenames = [], []
@@ -102,7 +131,9 @@ def extract_features(model, folder):
             filenames.extend(names)
     return np.vstack(features), filenames
 
+
 # ---------------- CLASS EXTRACTION ----------------
+# Used to extract class name from filenames
 def extract_class(filename, train_lookup):
     if "_" in filename:
         parts = filename.split("_")
@@ -110,21 +141,13 @@ def extract_class(filename, train_lookup):
             return "_".join(parts[:-1])
     return train_lookup.get(os.path.basename(filename), "unknown")
 
-# ---------------- SAVE METRICS ----------------
-def save_metrics_json(
-    model_name,
-    top_k_accuracy,
-    batch_size,
-    is_finetuned,
-    num_classes=None,
-    runtime=None,
-    loss_function="CrossEntropyLoss",
-    num_epochs=None,
-    final_loss=None
-):
-    # Use the script's directory to resolve path
+# ---------------- METRICS JSON SAVE ----------------
+# Saves all model metrics into a JSON file for analysis
+def save_metrics_json(model_name, top_k_accuracy, precision, batch_size, is_finetuned,
+                      num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
+                      num_epochs=None, final_loss=None):
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    results_dir = os.path.join(project_root, "results")
+    results_dir = os.path.join(project_root, "results_animals")
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
@@ -132,8 +155,9 @@ def save_metrics_json(
     metrics = {
         "model_name": model_name,
         "run_id": timestamp,
-        "top_k": 10,
+        "top_k": K,
         "top_k_accuracy": round(top_k_accuracy, 4),
+        "precision_at_k": round(precision, 4),
         "batch_size": batch_size,
         "is_finetuned": is_finetuned,
         "num_classes": num_classes,
@@ -147,29 +171,25 @@ def save_metrics_json(
         json.dump(metrics, f, indent=2)
     print(f"Metrics saved to: {os.path.abspath(out_path)}")
 
-    print(f"Metrics saved to: {os.path.abspath(out_path)}")
-
-
+# ---------------- SUBMIT TO SERVER ----------------
 def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
-    res = {}
-    res["groupname"] = groupname
-    res["images"] = results
-    res = json.dumps(res)
-    # print(res)
-    response = requests.post(url, res)
+    res = {"groupname": groupname, "images": results}
+    response = requests.post(url, json=res)
     try:
-        result = json.loads(response.text)
+        result = response.json()
         print(f"accuracy is {result['accuracy']}")
     except json.JSONDecodeError:
         print(f"ERROR: {response.text}")
 
-
 # ---------------- MAIN ----------------
 def main():
     start_time = time.time()
+
+    # Load pretrained DINOv2
     print("[1] Loading pretrained DINOv2 model...")
     dinov2 = AutoModel.from_pretrained(MODEL_NAME).to(DEVICE)
 
+    # Load training data and build model
     print("[2] Loading training dataset...")
     train_dataset = ImageFolder(TRAIN_DIR, transform=transform)
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
@@ -180,9 +200,11 @@ def main():
     optimizer = torch.optim.Adam(model.head.parameters(), lr=LR)
     criterion = nn.CrossEntropyLoss()
 
-    print("[4] Fine-tuning head on training set...")
+    # Fine-tune
+    print("[4] Fine-tuning classification head...")
     final_loss = train_head(model, train_loader, optimizer, criterion)
 
+    # Prepare class lookup
     print("[5] Building TRAIN_LOOKUP dictionary...")
     train_lookup = {}
     for class_name in os.listdir(TRAIN_DIR):
@@ -193,48 +215,40 @@ def main():
             if img_name.lower().endswith((".jpg", ".png")):
                 train_lookup[img_name] = class_name
 
+    # Extract features
     print("[6] Extracting features for retrieval...")
-    q_feats, q_names = extract_features(model, QUERY_DIR)
-    g_feats, g_names = extract_features(model, GALLERY_DIR)
+    q_feats, q_names = get_features_from_dir(model, QUERY_DIR)
+    g_feats, g_names = get_features_from_dir(model, GALLERY_DIR)
 
+    # Retrieval + submission dict
     print("[7] Performing top-k retrieval for each query...")
     submission = {}
-    correct = 0
-    total = 0
     for i, qf in enumerate(q_feats):
         sims = cosine_similarity(qf.reshape(1, -1), g_feats)[0]
         topk_idx = np.argsort(sims)[::-1][:K]
         retrieved = [g_names[j] for j in topk_idx]
+        submission[q_names[i]] = retrieved
 
-        query_filename = q_names[i]
-        submission[query_filename] = retrieved
+    # Evaluate metrics using standardized utility functions
+    print("[8] Calculating metrics...")
+    topk_acc = top_k_accuracy(q_names, submission, k=K)
+    prec_at_k = precision_at_k(q_names, submission, k=K)
+    print(f"Top-{K} Accuracy: {topk_acc:.4f}")
+    print(f"Precision@{K}: {prec_at_k:.4f}")
 
-        q_class = extract_class(query_filename, train_lookup)
-        if q_class == "unknown":
-            continue
-        retrieved_classes = [extract_class(name, train_lookup) for name in retrieved]
-        if q_class in retrieved_classes:
-            correct += 1
-        total += 1
-
-    top_k_acc = correct / total if total > 0 else 0.0
-    print(f"Top-{K} Accuracy (valid queries only): {top_k_acc:.4f}")
-
-    top_k_acc = correct / len(q_names)
-    print(f"Top-{K} Accuracy: {top_k_acc:.4f}")
-
-    print(f"[7] Saving output JSON to {OUTPUT_PATH}...")
+    # Save submission file
+    print("[9] Saving output JSON...")
     os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
     with open(OUTPUT_PATH, "w") as f:
         json.dump(submission, f, indent=2)
 
+    # Save metrics
     runtime = time.time() - start_time
-    print(f"Total runtime: {runtime:.2f} seconds")
-
-    print("[9] Saving metrics JSON...")
+    print("[10] Saving metrics JSON...")
     save_metrics_json(
         model_name="dinov2-base",
-        top_k_accuracy=top_k_acc,
+        top_k_accuracy=topk_acc,
+        precision=prec_at_k,
         batch_size=BATCH_SIZE,
         is_finetuned=True,
         num_classes=num_classes,
@@ -243,8 +257,6 @@ def main():
         num_epochs=EPOCHS,
         final_loss=final_loss
     )
-
-    print("Retrieval pipeline with metrics logging complete.")
 
     print("Retrieval pipeline with metrics logging complete.")
 

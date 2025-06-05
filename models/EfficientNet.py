@@ -12,19 +12,20 @@ from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as transforms
 from torchvision.datasets import ImageFolder
 import sys
+import requests
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.metrics import top_k_accuracy, precision_at_k
 
 # ----- Config -----
 # Configuration parameters
-K = 10  # top-k for retrieval evaluation
+K = 9  # top-k for retrieval evaluation
 FINE_TUNE = True  # whether to fine-tune the model on training data
-USE_GEM = True  # whether to use GeM pooling or default global average pooling (GAP)
+USE_GEM = False  # whether to use GeM pooling or default global average pooling (GAP)
 batch_size = 32  # batch size
 epochs = 10  # number of fine-tuning epochs
 lr = 5e-5  # learning rate for optimizer
-MODEL_VARIANT = 'b0'  # efficientnet variant: choose between 'b0' and 'b3'
+MODEL_VARIANT = 'b3'  # efficientnet variant: choose between 'b0' and 'b3'
 
 MODEL_NAME_MAP = {
     'b0': 'efficientnet_b0',
@@ -37,7 +38,7 @@ INPUT_SIZE_MAP = {
 MODEL_NAME = MODEL_NAME_MAP[MODEL_VARIANT]
 IMAGE_SIZE = INPUT_SIZE_MAP[MODEL_VARIANT]
 
-DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data"))
+DATA_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data_animals"))
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # ----- Image preprocessing -----
@@ -192,7 +193,7 @@ def save_metrics_json(model_name, top_k_accuracy, precision, batch_size, is_fine
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None, pooling_type=None):
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    results_dir = os.path.join(project_root, "results")
+    results_dir = os.path.join(project_root, "results_animals")
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
@@ -289,4 +290,4 @@ if __name__ == "__main__":
         pooling_type="GeM" if USE_GEM else "GAP"
     )
 
-    submit(result, groupname="Stochastic_thr")
+    #submit(result, groupname="Stochastic_thr")

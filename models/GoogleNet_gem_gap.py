@@ -9,6 +9,11 @@ from tqdm import tqdm
 import json
 import torch.optim as optim
 from datetime import datetime
+import requests
+import sys
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from utils.metrics import top_k_accuracy, precision_at_k
 
 # ---------------- CONFIGURATION ----------------
 k = 10  # Top-K retrieval
@@ -17,10 +22,10 @@ image_size = (224, 224)  # GoogLeNet standard input size
 normalize_mean = [0.485, 0.456, 0.406]  # Imagenet normalization mean
 normalize_std = [0.229, 0.224, 0.225]   # Imagenet normalization std
 FINE_TUNE = True
-TRAIN_LAST_LAYER_ONLY = True  # Fine-tune only last layer for faster convergence
-epochs = 5
-learning_rate = 1e-5
-USE_GEM_POOLING = True  # Use GeM pooling instead of Global Average Pooling (GAP)
+TRAIN_LAST_LAYER_ONLY = False  # Fine-tune only last layer for faster convergence
+epochs = 10
+learning_rate = 5e-5
+USE_GEM_POOLING = False  # Use GeM pooling instead of Global Average Pooling (GAP)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'  # Use GPU if available
 
 # ======= GeM Pooling Layer =========
@@ -39,14 +44,15 @@ class GeM(torch.nn.Module):
 
 
 # ======= PATHS ============
-root_dir_test = os.path.join(project_root, 'data', 'test')
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+root_dir_test = os.path.join(project_root, 'data_animals', 'test')
 query_folder = os.path.join(root_dir_test, 'query')
 gallery_folder = os.path.join(root_dir_test, 'gallery')
 
 #====== TRAIN LOOP - TRAIN FOLDER ======
 TRAIN_LOOKUP = {}
-project_root = 'data'
-train_root = os.path.join(project_root, 'training') 
+
+train_root = os.path.join(project_root, 'data_animals', 'training') 
 
 for class_name in os.listdir(train_root):
     class_dir = os.path.join(train_root, class_name)
@@ -88,13 +94,18 @@ def build_googlenet_extractor(device):
     # Load pretrained GoogLeNet with default weights and disable auxiliary classifiers
     weights = torchvision.models.GoogLeNet_Weights.DEFAULT
     model = torchvision.models.googlenet(weights=weights, aux_logits=True)
-    model.aux1 = torch.nn.Identity()  # Remove aux classifiers
+    model.aux1 = torch.nn.Identity()
     model.aux2 = torch.nn.Identity()
-    # Replace pooling with GeM or GAP
+    model._original_fc_in_features = model.fc.in_features
+
+    # Replace pooling layer
     model.avgpool = GeM() if USE_GEM_POOLING else torch.nn.AdaptiveAvgPool2d((1, 1))
-    # Remove final FC layer to get embeddings instead of class scores
+
+    # Remove final FC layer for embedding extraction
     model.fc = torch.nn.Identity()
+
     return model.to(device).eval()
+
 
 # -------- Fine-tune Model on Training Data --------
 def fine_tune_model(model, train_loader, device, num_classes,
@@ -103,7 +114,7 @@ def fine_tune_model(model, train_loader, device, num_classes,
     model.train().to(device)
 
     # Replace FC with new classifier for current dataset classes
-    model.fc = torch.nn.Linear(model.fc.in_features, num_classes).to(device)
+    model.fc = torch.nn.Linear(model._original_fc_in_features, num_classes).to(device)
 
     # Freeze all parameters except the final FC layer if specified
     if train_last_layer_only:
@@ -171,45 +182,20 @@ def retrieve_topk(query_embs, gallery_embs, query_paths, gallery_paths, k):
         results[query_filename] = top_filenames
     return results
 
-# -------- Calculate Top-K Retrieval Accuracy --------
-def calculate_top_k_accuracy(results):
-    # Helper to extract class name from filename using training lookup
-    def extract_class(filename):
-        # If filename uses "_" to separate class info, use that, else fallback to TRAIN_LOOKUP
-        if "_" in filename:
-            parts = filename.split("_")
-            if len(parts) >= 2 and not parts[0].isdigit():
-                return "_".join(parts[:-1])
-        base = os.path.basename(filename)
-        return TRAIN_LOOKUP.get(base, "unknown")
-
-    correct = 0
-    total = len(results)
-
-    for query_filename, retrieved_list in results.items():
-        query_class = extract_class(query_filename)
-        retrieved_classes = [extract_class(fn) for fn in retrieved_list]
-        if query_class in retrieved_classes:
-            correct += 1
-
-    acc = correct / total
-    print(f" Top-{k} Accuracy: {acc:.4f}")
-    return acc
-
-
 # ======= Metrics saving =======
-def save_metrics_json(model_name, top_k_accuracy, batch_size, is_finetuned, num_classes=None, runtime=None, loss_function="MSELoss", num_epochs=None, final_loss=None, pooling_type=None):
+def save_metrics_json(model_name, top_k_accuracy, precision, batch_size, is_finetuned, num_classes=None, runtime=None, loss_function="MSELoss", num_epochs=None, final_loss=None, pooling_type=None):
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-    results_dir = os.path.join(project_root, "results")
+    results_dir = os.path.join(project_root, "results_animals")
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
-
+    
     metrics = {
         "model_name": model_name,
         "run_id": timestamp,
         "top_k": 10,
         "top_k_accuracy": round(top_k_accuracy, 4),
+        "precision_at_k": round(precision, 4),
         "batch_size": batch_size,
         "is_finetuned": is_finetuned,
         "num_classes": num_classes,
@@ -246,18 +232,9 @@ def submit(results, groupname, url="http://65.108.245.177:3001/retrieval/"):
 if __name__ == '__main__':
     import time
 
-    # Set project root based on current working directory and data folders
-    cwd = os.getcwd()
-    if os.path.isdir(os.path.join(cwd, 'data', 'training')):
-        project_root = cwd
-    elif os.path.isdir(os.path.join(cwd, '..', 'data', 'training')):
-        project_root = os.path.abspath(os.path.join(cwd, '..'))
-    else:
-        raise RuntimeError("Folder 'data/training' not found. Run from project root.")
-
     # Create training lookup dict for accuracy evaluation
     TRAIN_LOOKUP = {}
-    train_root = os.path.join(project_root, 'data', 'training')
+    train_root = os.path.join(project_root, 'data_animals', 'training')
     for class_name in os.listdir(train_root):
         class_dir = os.path.join(train_root, class_name)
         if not os.path.isdir(class_dir):
@@ -266,20 +243,70 @@ if __name__ == '__main__':
             if img_name.lower().endswith(('.jpg', '.png')):
                 TRAIN_LOOKUP[img_name] = class_name
 
-    # Define query and gallery folders
-    root_dir_test = os.path.join(project_root, 'data', 'test')
-    query_folder = os.path.join(root_dir_test, 'query')
-    gallery_folder = os.path.join(root_dir_test, 'gallery')
-
-    # Load query and gallery datasets and dataloaders
+    # Load query and gallery datasets
     query_dataset = ImagePathDataset(query_folder, transform=transform)
     gallery_dataset = ImagePathDataset(gallery_folder, transform=transform)
-    query_loader = DataLoader(query_dataset, batch_size, shuffle=False)
-    gallery_loader = DataLoader(gallery_dataset, batch_size, shuffle=False)
+    query_loader = DataLoader(query_dataset, batch_size, shuffle=False, num_workers=4)
+    gallery_loader = DataLoader(gallery_dataset, batch_size, shuffle=False, num_workers=4)
 
     start_time = time.time()
 
+    # Build and fine-tune GoogLeNet
+    model = build_googlenet_extractor(device)
+    final_loss = None
     if FINE_TUNE:
         print("[FT] Loading training data...")
         from torchvision.datasets import ImageFolder
-        train_dataset = ImageFolder
+        train_dataset = ImageFolder(train_root, transform=transform)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+        model, final_loss = fine_tune_model(
+            model=model,
+            train_loader=train_loader,
+            device=device,
+            num_classes=len(train_dataset.classes),
+            train_last_layer_only=TRAIN_LAST_LAYER_ONLY,
+            epochs=epochs,
+            learning_rate=learning_rate
+        )
+
+    # Extract embeddings
+    gallery_embeddings = extract_embeddings(gallery_loader, model, device)
+    query_embeddings = extract_embeddings(query_loader, model, device)
+
+    # Retrieve top-k results
+    gallery_paths = gallery_dataset.paths
+    query_paths = query_dataset.paths
+    result = retrieve_topk(query_embeddings, gallery_embeddings, query_paths, gallery_paths, k=k)
+
+    # Evaluate Top-k Accuracy and Precision@k
+    query_filenames = [os.path.basename(p) for p in query_paths]
+    topk_acc = top_k_accuracy(query_filenames, result, k=k)
+    prec_at_k = precision_at_k(query_filenames, result, k=k)
+
+    # Save submission file
+    output_dir = os.path.join(project_root, "submissions")
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, "sub_googlenet.json")
+    with open(output_path, "w") as f:
+        json.dump(result, f, indent=2)
+    print(f"Submission saved to: {output_path}")
+
+    # Save evaluation metrics to JSON
+    total_time = time.time() - start_time
+    save_metrics_json(
+        model_name="googlenet",
+        top_k_accuracy=topk_acc,
+        precision=prec_at_k,
+        batch_size=batch_size,
+        is_finetuned=FINE_TUNE,
+        num_classes=len(TRAIN_LOOKUP.values()),
+        runtime=total_time,
+        loss_function="CrossEntropyLoss",
+        num_epochs=epochs if FINE_TUNE else 0,
+        final_loss=final_loss if FINE_TUNE else None,
+        pooling_type="GeM" if USE_GEM_POOLING else "GAP"
+    )
+
+
+    # Optional: submit to evaluation server
+    #submit(result, groupname="Stochastic_thr")

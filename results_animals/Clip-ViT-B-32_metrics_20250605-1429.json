@@ -1,0 +1,14 @@
+{
+  "model_name": "Clip-ViT-B-32",
+  "run_id": "20250605-1429",
+  "top_k": 9,
+  "top_k_accuracy": 0.9975,
+  "precision_at_k": 0.6686,
+  "batch_size": 64,
+  "is_finetuned": true,
+  "num_classes": 90,
+  "runtime_seconds": 259.5,
+  "loss_function": "CrossEntropyLoss",
+  "num_epochs": 15,
+  "final_train_loss": 4.3386
+}

@@ -4,7 +4,7 @@ from collections import defaultdict
 import numpy as np
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-RESULTS_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "results"))
+RESULTS_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "results_animals"))
 
 groups = defaultdict(list)
 
@@ -35,6 +35,7 @@ for filename in os.listdir(RESULTS_DIR):
 
         metrics = {
             "top_k_accuracy": data.get("top_k_accuracy", 0) or 0,
+            "precision_at_k": data.get("precision_at_k", 0) or 0,
             "final_train_loss": data.get("final_train_loss", 0) or 0,
             "runtime_seconds": data.get("runtime_seconds", 0) or 0,
         }
