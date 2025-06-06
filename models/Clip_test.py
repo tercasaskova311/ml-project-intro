@@ -10,9 +10,15 @@ from datetime import datetime
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import torch.nn.functional as F
-from torch.cuda.amp import autocast, GradScaler
+import contextlib
 import requests
 import sys
+
+# Set memory allocation configuration
+torch.cuda.empty_cache()
+if torch.cuda.is_available():
+    torch.backends.cuda.max_split_size_mb = 512
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'max_split_size_mb:512,expandable_segments:True'
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utils.metrics import top_k_accuracy, precision_at_k  # Import our custom metric functions
@@ -20,8 +26,8 @@ from utils.metrics import top_k_accuracy, precision_at_k  # Import our custom me
 # =======================
 #    CONFIGURATION
 # =======================
-k = 9  # Number of top-k retrieved images to evaluate per query
-batch_size = 32  # Reduced batch size for stability
+k = 10  # Number of top-k retrieved images to evaluate per query
+batch_size = 16  # Reduced batch size due to memory constraints
 FINE_TUNE = True  # If True, fine-tune the CLIP model on the training dataset
 TRAIN_LAST_LAYER_ONLY = False  # If True, only fine-tune the projection head
 epochs = 20  # Number of training epochs
@@ -29,12 +35,22 @@ lr = 5e-5  # Reduced learning rate for stability
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 temperature = 0.1  # Temperature parameter for contrastive loss
 max_grad_norm = 1.0  # Maximum gradient norm for clipping
+accumulation_steps = 4  # Gradient accumulation steps to simulate larger batch size
+
+# Create an autocast context manager
+autocast_ctx = contextlib.nullcontext() if device == 'cpu' else torch.amp.autocast('cuda', dtype=torch.float32)
 
 # =======================
 #  MODEL INITIALIZATION
 # =======================
 # Load the CLIP model and its preprocessing pipeline
 model, preprocess = clip.load("ViT-B/16", device=device)
+
+# Enable gradient checkpointing for memory efficiency
+if hasattr(model.visual, 'transformer') and hasattr(model.visual.transformer, 'set_grad_checkpointing'):
+    model.visual.transformer.set_grad_checkpointing(True)
+elif hasattr(model.visual, 'set_grad_checkpointing'):
+    model.visual.set_grad_checkpointing(True)
 
 def configure_model_parameters(classifier):
     """Configure which parameters should be trained based on settings."""
@@ -120,6 +136,15 @@ class ClipClassifier(torch.nn.Module):
     def __init__(self, clip_model, num_classes):
         super().__init__()
         self.clip = clip_model
+        
+        # Convert CLIP model to float32
+        if hasattr(self.clip, 'float'):
+            self.clip = self.clip.float()
+            
+        # Enable gradient checkpointing for the transformer if available
+        if hasattr(self.clip.visual, 'transformer'):
+            self.clip.visual.transformer.gradient_checkpointing = True
+            
         # Add a projection head with batch normalization for fine-tuning
         self.projection = torch.nn.Sequential(
             torch.nn.Linear(clip_model.visual.output_dim, 512),
@@ -128,34 +153,43 @@ class ClipClassifier(torch.nn.Module):
             torch.nn.Dropout(0.1),
             torch.nn.Linear(512, 256),
             torch.nn.BatchNorm1d(256)
-        )
-        self.fc = torch.nn.Linear(256, num_classes)
+        ).float()  # Ensure projection head is float32
+        
+        self.fc = torch.nn.Linear(256, num_classes).float()  # Ensure classifier is float32
 
     def forward(self, x):
-        expected_dtype = self.clip.visual.conv1.weight.dtype
-        x = x.to(dtype=expected_dtype)
+        with autocast_ctx:
+            # Ensure input is in the correct format
+            if x.dtype != torch.float32:
+                x = x.float()
+            
+            # Get CLIP features
+            features = self.clip.encode_image(x)
+            if features.dtype != torch.float32:
+                features = features.float()
         
-        # Get CLIP features
-        with autocast():
-            features = self.clip.encode_image(x).float()
-        
-        # Project features
+        # Project features (outside autocast to ensure FP32)
         projected = self.projection(features)
-        projected = F.normalize(projected, dim=-1)  # L2 normalize
+        projected = F.normalize(projected, dim=-1)
         
         # Classification output
         return self.fc(projected)
 
     def extract_features(self, x):
-        expected_dtype = self.clip.visual.conv1.weight.dtype
-        x = x.to(dtype=expected_dtype)
-        
-        # Get CLIP features and project them
         with torch.set_grad_enabled(self.training):
-            with autocast():
-                features = self.clip.encode_image(x).float()
+            with autocast_ctx:
+                # Ensure input is in the correct format
+                if x.dtype != torch.float32:
+                    x = x.float()
+                
+                # Get CLIP features
+                features = self.clip.encode_image(x)
+                if features.dtype != torch.float32:
+                    features = features.float()
+            
+            # Project features (outside autocast to ensure FP32)
             projected = self.projection(features)
-            projected = F.normalize(projected, dim=-1)  # L2 normalize
+            projected = F.normalize(projected, dim=-1)
         
         return projected
 
@@ -227,15 +261,23 @@ class ImageFolderDataset(Dataset):
 # =======================
 def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
     model.train()
+    
+    # Ensure all parts of the model are in FP32
+    for module in [model.clip, model.projection, model.fc]:
+        if hasattr(module, 'float'):
+            module.float()
+    
     optimizer = torch.optim.AdamW([
-        {'params': model.clip.parameters(), 'lr': lr * 0.1},  # Lower learning rate for CLIP
+        {'params': model.clip.parameters(), 'lr': lr * 0.1},
         {'params': model.projection.parameters(), 'lr': lr},
         {'params': model.fc.parameters(), 'lr': lr}
-    ], weight_decay=0.01)  # Add weight decay for regularization
+    ], weight_decay=0.01)
     
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs)
     ce_loss = torch.nn.CrossEntropyLoss()
-    scaler = GradScaler()  # For mixed precision training
+    
+    # Initialize GradScaler for mixed precision training
+    scaler = torch.amp.GradScaler('cuda') if device == 'cuda' else None
     
     # Initialize early stopping
     early_stopping = EarlyStopping(
@@ -248,58 +290,67 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
     for epoch in range(epochs):
         running_loss = 0.0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")
-        for images, labels, _ in pbar:
+        optimizer.zero_grad(set_to_none=True)
+        
+        for i, (images, labels, _) in enumerate(pbar):
             images = images.to(device)
             labels = labels.to(device)
             
-            optimizer.zero_grad()
-            
-            # Use mixed precision training
-            with autocast():
-                # Get features and classification outputs
+            # Forward pass with autocast
+            with autocast_ctx:
                 features = model.extract_features(images)
                 outputs = model.fc(features)
                 
-                # Compute both losses
                 loss_ce = ce_loss(outputs, labels)
                 loss_cont = contrastive_loss(features, labels)
-                
-                # Combined loss with weighting
-                loss = loss_ce + 0.5 * loss_cont
+                loss = (loss_ce + 0.5 * loss_cont) / accumulation_steps
 
             # Skip batch if loss is NaN
             if torch.isnan(loss):
                 print("Loss is NaN, skipping batch")
                 continue
 
-            # Backward pass with gradient scaling
-            scaler.scale(loss).backward()
+            if scaler is not None:
+                # Mixed precision training path
+                scaler.scale(loss).backward()
+                
+                # Update weights every accumulation_steps batches
+                if (i + 1) % accumulation_steps == 0:
+                    if max_grad_norm > 0:
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    scaler.step(optimizer)
+                    scaler.update()
+                    optimizer.zero_grad(set_to_none=True)
+            else:
+                # Standard training path
+                loss.backward()
+                if (i + 1) % accumulation_steps == 0:
+                    if max_grad_norm > 0:
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
             
-            # Clip gradients
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
-            
-            # Optimizer step with gradient scaling
-            scaler.step(optimizer)
-            scaler.update()
-            
-            running_loss += loss.item()
-            pbar.set_postfix({'loss': loss.item()})
+            running_loss += loss.item() * accumulation_steps
+            pbar.set_postfix({'loss': loss.item() * accumulation_steps})
 
-        # Calculate average loss for this epoch
+            # Free up memory
+            if (i + 1) % 10 == 0:
+                torch.cuda.empty_cache()
+
         epoch_loss = running_loss / len(train_loader)
         final_loss = epoch_loss
         print(f"Epoch {epoch+1}/{epochs} - Total Loss: {epoch_loss:.4f}")
         
-        # Step the scheduler
         scheduler.step()
         
-        # Early stopping check
         if early_stopping(model, epoch_loss):
             print(f"Early stopping triggered after epoch {epoch+1}")
-            # Load the best model
             early_stopping.load_best_model(model)
             break
+
+        # Free up memory at the end of each epoch
+        torch.cuda.empty_cache()
 
     return final_loss
 
@@ -368,7 +419,7 @@ def save_metrics_json(model_name, top_k_accuracy, precision, batch_size, is_fine
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    results_dir = os.path.join(project_root, "results_animals")
+    results_dir = os.path.join(project_root, "results")
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
@@ -415,7 +466,7 @@ if __name__ == "__main__":
 
     # Define root paths for training and test images
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    DATA_DIR = os.path.join(BASE_DIR, "data_animals")
+    DATA_DIR = os.path.join(BASE_DIR, "data")
     training_dir = os.path.join(DATA_DIR, "training")
     query_dir = os.path.join(DATA_DIR, "test", "query")
     gallery_dir = os.path.join(DATA_DIR, "test", "gallery")
@@ -461,7 +512,7 @@ if __name__ == "__main__":
 
     # Save metrics
     save_metrics_json(
-        model_name="Clip-ViT-B-16",
+        model_name="Clip-ViT-L-14",
         top_k_accuracy=top_k_acc,
         precision=prec_at_k,
         batch_size=batch_size,
