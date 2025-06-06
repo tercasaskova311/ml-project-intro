@@ -26,9 +26,9 @@ from utils.metrics import top_k_accuracy, precision_at_k  # Import our custom me
 # =======================
 #    CONFIGURATION
 # =======================
-k = 10  # Number of top-k retrieved images to evaluate per query
-batch_size = 16  # Reduced batch size due to memory constraints
-FINE_TUNE = True  # If True, fine-tune the CLIP model on the training dataset
+k = 9  # Number of top-k retrieved images to evaluate per query
+batch_size = 32  # Reduced batch size due to memory constraints
+FINE_TUNE = False  # If True, fine-tune the CLIP model on the training dataset
 TRAIN_LAST_LAYER_ONLY = False  # If True, only fine-tune the projection head
 epochs = 20  # Number of training epochs
 lr = 5e-5  # Reduced learning rate for stability
@@ -44,7 +44,7 @@ autocast_ctx = contextlib.nullcontext() if device == 'cpu' else torch.amp.autoca
 #  MODEL INITIALIZATION
 # =======================
 # Load the CLIP model and its preprocessing pipeline
-model, preprocess = clip.load("ViT-B/16", device=device)
+model, preprocess = clip.load("ViT-B/32", device=device)
 
 # Enable gradient checkpointing for memory efficiency
 if hasattr(model.visual, 'transformer') and hasattr(model.visual.transformer, 'set_grad_checkpointing'):
@@ -419,7 +419,7 @@ def save_metrics_json(model_name, top_k_accuracy, precision, batch_size, is_fine
                       num_classes=None, runtime=None, loss_function="CrossEntropyLoss",
                       num_epochs=None, final_loss=None):
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    results_dir = os.path.join(project_root, "results")
+    results_dir = os.path.join(project_root, "results_animals")
     os.makedirs(results_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M")
     out_path = os.path.join(results_dir, f"{model_name}_metrics_{timestamp}.json")
@@ -466,7 +466,7 @@ if __name__ == "__main__":
 
     # Define root paths for training and test images
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    DATA_DIR = os.path.join(BASE_DIR, "data")
+    DATA_DIR = os.path.join(BASE_DIR, "data_animals")
     training_dir = os.path.join(DATA_DIR, "training")
     query_dir = os.path.join(DATA_DIR, "test", "query")
     gallery_dir = os.path.join(DATA_DIR, "test", "gallery")
@@ -500,7 +500,7 @@ if __name__ == "__main__":
     sub_dir = os.path.join(BASE_DIR, "submissions")
     os.makedirs(sub_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    sub_path = os.path.join(sub_dir, f"sub_clip_test.json")
+    sub_path = os.path.join(sub_dir, f"sub_clip_test_animals.json")
     with open(sub_path, "w") as f:
         json.dump(submission, f, indent=2)
     print(f"Submission saved to: {os.path.abspath(sub_path)}")
