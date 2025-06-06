@@ -10,6 +10,7 @@ from datetime import datetime
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 import torch.nn.functional as F
+from torch.cuda.amp import autocast, GradScaler
 import requests
 import sys
 
@@ -20,12 +21,14 @@ from utils.metrics import top_k_accuracy, precision_at_k  # Import our custom me
 #    CONFIGURATION
 # =======================
 k = 9  # Number of top-k retrieved images to evaluate per query
-batch_size = 64  # Batch size
+batch_size = 32  # Reduced batch size for stability
 FINE_TUNE = True  # If True, fine-tune the CLIP model on the training dataset
 TRAIN_LAST_LAYER_ONLY = False  # If True, only fine-tune the projection head
 epochs = 20  # Number of training epochs
-lr = 1e-4  # Learning rate for the optimizer
-device = 'cuda' if torch.cuda.is_available() else 'cpu'  # Use GPU if available for performance
+lr = 5e-5  # Reduced learning rate for stability
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+temperature = 0.1  # Temperature parameter for contrastive loss
+max_grad_norm = 1.0  # Maximum gradient norm for clipping
 
 # =======================
 #  MODEL INITIALIZATION
@@ -117,24 +120,28 @@ class ClipClassifier(torch.nn.Module):
     def __init__(self, clip_model, num_classes):
         super().__init__()
         self.clip = clip_model
-        # Add a projection head for fine-tuning
+        # Add a projection head with batch normalization for fine-tuning
         self.projection = torch.nn.Sequential(
             torch.nn.Linear(clip_model.visual.output_dim, 512),
+            torch.nn.BatchNorm1d(512),
             torch.nn.ReLU(),
-            torch.nn.Linear(512, 256)  # Lower dimensional embedding space
+            torch.nn.Dropout(0.1),
+            torch.nn.Linear(512, 256),
+            torch.nn.BatchNorm1d(256)
         )
-        self.fc = torch.nn.Linear(256, num_classes)  # Classification head
+        self.fc = torch.nn.Linear(256, num_classes)
 
     def forward(self, x):
         expected_dtype = self.clip.visual.conv1.weight.dtype
         x = x.to(dtype=expected_dtype)
         
         # Get CLIP features
-        features = self.clip.encode_image(x).float()
+        with autocast():
+            features = self.clip.encode_image(x).float()
         
         # Project features
         projected = self.projection(features)
-        projected = projected / projected.norm(dim=-1, keepdim=True)  # Normalize
+        projected = F.normalize(projected, dim=-1)  # L2 normalize
         
         # Classification output
         return self.fc(projected)
@@ -144,17 +151,16 @@ class ClipClassifier(torch.nn.Module):
         x = x.to(dtype=expected_dtype)
         
         # Get CLIP features and project them
-        with torch.set_grad_enabled(self.training):  # Allow gradients during training
-            features = self.clip.encode_image(x).float()
+        with torch.set_grad_enabled(self.training):
+            with autocast():
+                features = self.clip.encode_image(x).float()
             projected = self.projection(features)
-            projected = projected / projected.norm(dim=-1, keepdim=True)
+            projected = F.normalize(projected, dim=-1)  # L2 normalize
         
         return projected
 
-def contrastive_loss(features, labels, temperature=0.07):
-    """
-    Compute contrastive loss
-    """
+def contrastive_loss(features, labels, temp=temperature):
+    """Compute contrastive loss with temperature scaling"""
     batch_size = features.size(0)
     labels = labels.view(-1, 1)
     mask = torch.eq(labels, labels.T).float().to(features.device)
@@ -173,13 +179,15 @@ def contrastive_loss(features, labels, temperature=0.07):
     
     mask = mask * logits_mask
     
-    # Compute log_prob
-    similarity_matrix = similarity_matrix / temperature
+    # Apply temperature scaling
+    similarity_matrix = similarity_matrix / temp
+    
+    # Compute log_prob with numerical stability
     exp_sim = torch.exp(similarity_matrix) * logits_mask
-    log_prob = similarity_matrix - torch.log(exp_sim.sum(1, keepdim=True))
+    log_prob = similarity_matrix - torch.log(exp_sim.sum(1, keepdim=True) + 1e-7)
     
     # Compute mean of log-likelihood over positive pairs
-    mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+    mean_log_prob_pos = (mask * log_prob).sum(1) / (mask.sum(1) + 1e-7)
     
     return -mean_log_prob_pos.mean()
 
@@ -219,9 +227,15 @@ class ImageFolderDataset(Dataset):
 # =======================
 def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
     model.train()
-    optimizer = get_optimizer(model)
+    optimizer = torch.optim.AdamW([
+        {'params': model.clip.parameters(), 'lr': lr * 0.1},  # Lower learning rate for CLIP
+        {'params': model.projection.parameters(), 'lr': lr},
+        {'params': model.fc.parameters(), 'lr': lr}
+    ], weight_decay=0.01)  # Add weight decay for regularization
+    
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs)
     ce_loss = torch.nn.CrossEntropyLoss()
+    scaler = GradScaler()  # For mixed precision training
     
     # Initialize early stopping
     early_stopping = EarlyStopping(
@@ -233,29 +247,44 @@ def fine_tune_clip(train_loader, model, epochs=epochs, lr=lr):
     final_loss = 0.0
     for epoch in range(epochs):
         running_loss = 0.0
-        for images, labels, _ in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}"):
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs}")
+        for images, labels, _ in pbar:
             images = images.to(device)
             labels = labels.to(device)
             
-            # Get features and classification outputs
-            features = model.extract_features(images)
-            outputs = model.fc(features)
+            optimizer.zero_grad()
             
-            # Compute both losses
-            loss_ce = ce_loss(outputs, labels)
-            loss_cont = contrastive_loss(features, labels)
-            
-            # Combined loss with weighting
-            loss = loss_ce + 0.5 * loss_cont
+            # Use mixed precision training
+            with autocast():
+                # Get features and classification outputs
+                features = model.extract_features(images)
+                outputs = model.fc(features)
+                
+                # Compute both losses
+                loss_ce = ce_loss(outputs, labels)
+                loss_cont = contrastive_loss(features, labels)
+                
+                # Combined loss with weighting
+                loss = loss_ce + 0.5 * loss_cont
 
+            # Skip batch if loss is NaN
             if torch.isnan(loss):
                 print("Loss is NaN, skipping batch")
                 continue
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+            # Backward pass with gradient scaling
+            scaler.scale(loss).backward()
+            
+            # Clip gradients
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+            
+            # Optimizer step with gradient scaling
+            scaler.step(optimizer)
+            scaler.update()
+            
             running_loss += loss.item()
+            pbar.set_postfix({'loss': loss.item()})
 
         # Calculate average loss for this epoch
         epoch_loss = running_loss / len(train_loader)
