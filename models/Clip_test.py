@@ -449,7 +449,7 @@ if __name__ == "__main__":
     sub_dir = os.path.join(BASE_DIR, "submissions")
     os.makedirs(sub_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    sub_path = os.path.join(sub_dir, f"submission_clip_{timestamp}.json")
+    sub_path = os.path.join(sub_dir, f"sub_clip_test.json")
     with open(sub_path, "w") as f:
         json.dump(submission, f, indent=2)
     print(f"Submission saved to: {os.path.abspath(sub_path)}")

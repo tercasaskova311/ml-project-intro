@@ -2,7 +2,7 @@ import json
 import requests
 import os
 
-submission_file = "submissions/sub_clip.json" 
+submission_file = "submissions/sub_clip_test.json" 
 groupname = "Stochastic thr"
 url = "http://tatooine.disi.unitn.it:3001/retrieval/"
 
