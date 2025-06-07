@@ -27,7 +27,7 @@ from utils.metrics import top_k_accuracy, precision_at_k  # Import our custom me
 #    CONFIGURATION
 # =======================
 k = 9  # Number of top-k retrieved images to evaluate per query
-batch_size = 16  # Reduced batch size due to memory constraints
+batch_size = 32  # Reduced batch size due to memory constraints
 FINE_TUNE = True  # If True, fine-tune the CLIP model on the training dataset
 TRAIN_LAST_LAYER_ONLY = True  # If True, only fine-tune the projection head
 epochs = 20  # Number of training epochs
@@ -44,7 +44,7 @@ autocast_ctx = contextlib.nullcontext() if device == 'cpu' else torch.amp.autoca
 #  MODEL INITIALIZATION
 # =======================
 # Load the CLIP model and its preprocessing pipeline
-model, preprocess = clip.load("ViT-L/14", device=device)
+model, preprocess = clip.load("ViT-B/32", device=device)
 
 # Enable gradient checkpointing for memory efficiency
 if hasattr(model.visual, 'transformer') and hasattr(model.visual.transformer, 'set_grad_checkpointing'):
@@ -512,7 +512,7 @@ if __name__ == "__main__":
 
     # Save metrics
     save_metrics_json(
-        model_name="Clip-ViT-L-14",
+        model_name="Clip-ViT-B-32",
         top_k_accuracy=top_k_acc,
         precision=prec_at_k,
         batch_size=batch_size,
