@@ -27,9 +27,9 @@ from utils.metrics import top_k_accuracy, precision_at_k  # Import our custom me
 #    CONFIGURATION
 # =======================
 k = 9  # Number of top-k retrieved images to evaluate per query
-batch_size = 32  # Reduced batch size due to memory constraints
-FINE_TUNE = False  # If True, fine-tune the CLIP model on the training dataset
-TRAIN_LAST_LAYER_ONLY = False  # If True, only fine-tune the projection head
+batch_size = 16  # Reduced batch size due to memory constraints
+FINE_TUNE = True  # If True, fine-tune the CLIP model on the training dataset
+TRAIN_LAST_LAYER_ONLY = True  # If True, only fine-tune the projection head
 epochs = 20  # Number of training epochs
 lr = 5e-5  # Reduced learning rate for stability
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -44,7 +44,7 @@ autocast_ctx = contextlib.nullcontext() if device == 'cpu' else torch.amp.autoca
 #  MODEL INITIALIZATION
 # =======================
 # Load the CLIP model and its preprocessing pipeline
-model, preprocess = clip.load("ViT-B/32", device=device)
+model, preprocess = clip.load("ViT-L/14", device=device)
 
 # Enable gradient checkpointing for memory efficiency
 if hasattr(model.visual, 'transformer') and hasattr(model.visual.transformer, 'set_grad_checkpointing'):
