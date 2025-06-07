@@ -1,0 +1,14 @@
+{
+  "model_name": "Clip-ViT-L-14",
+  "run_id": "20250607-1612",
+  "top_k": 10,
+  "top_k_accuracy": 0.0,
+  "precision_at_k": 0.0,
+  "batch_size": 16,
+  "is_finetuned": true,
+  "num_classes": 921,
+  "runtime_seconds": 254.78,
+  "loss_function": "CrossEntropyLoss",
+  "num_epochs": 10,
+  "final_train_loss": 6.7005
+}
