@@ -6,7 +6,7 @@ from PIL import Image
 # -------- PATHS --------
 query_dir = "./data/test/query"
 gallery_dir = "./data/test/gallery"
-submission_path = "./submissions/sub_clip_data.json"
+submission_path = "./submissions/sub_clip_data_tested.json"
 output_path = "retrieval_result.png"
 
 # -------- LOAD SUBMISSION --------
