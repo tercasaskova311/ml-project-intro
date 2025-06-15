@@ -62,7 +62,7 @@ for i, (query_file, retrieved_files) in enumerate(submission.items()):
     os.makedirs("visualizations", exist_ok=True)
     plt.savefig(f"visualizations/query_{i:03}.png", bbox_inches='tight', dpi=150)
     plt.close()
-    print(f"[✅] Saved visualization for query {query_file}")
+    print(f"Saved visualization for query {query_file}")
 
 
     #plt.savefig('plot.png', bbox_inches='tight', dpi=300)  # Save the plot if needed

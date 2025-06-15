@@ -1,9 +1,27 @@
 
-# Image Retrieval with Deep Learning
+# Top-k Image Retrieval with Pretrained Vision Models
 
 This repository contains our solution to the **Image Retrieval Competition** held in the **Intro to Machine Learning** course at the University of Trento. The objective was to develop a pipeline that retrieves the **Top-k most similar images** for each query image.
 
-We implemented and evaluated multiple deep learning models, including CLIP, DINOv2, EfficientNet, ResNet, and GoogLeNet, exploring different pooling strategies (GeM vs GAP) and fine-tuning settings.
+We implemented and evaluated multiple deep learning models, including CLIP, DINOv2, EfficientNet, ResNet, and GoogLeNet.
+Each model extracts feature embeddings from query and gallery images using a pretrained or fine-tuned encoder. Retrieval is performed by ranking gallery images according to cosine similarity with the query embedding. We tested both frozen and fine-tuned variants, and evaluated the impact of different pooling strategies (GAP vs. GeM) on retrieval performance.
+
+---
+
+## Report
+
+A full technical report is provided under `report/report_cvpr2025.pdf`, detailing all experimental settings, implementation choices, and results. The report follows the CVPR template and includes figures, tables, and references for all tested models.
+
+---
+
+## Project Structure
+
+- `models/`: main model scripts (CLIP, DINOv2, EfficientNet, ResNet, GoogLeNet)
+- `src/`: metric analysis and visualization tools
+- `submissions/`: generated submission files
+- `results/`: JSON logs of performance per model
+- `report/`: CVPR-style report of the project
+- `utils/`: utility functions for computing retrieval metrics (e.g., Top-k accuracy, Precision@K)
 
 ---
 
@@ -27,11 +45,16 @@ Each image in `training/` is used to learn class-discriminative embeddings. Retr
 
 | Model         | Type      | Variants         | Fine-tuning | Pooling     | Script                         |
 |---------------|-----------|------------------|-------------|-------------|--------------------------------|
-| CLIP          | ViT       | ViT-B/32, B/16, L/14 | ✅ / (Last layer) | Internal    | `Clip.py`                      |
-| DINOv2        | ViT       | ViT-B/14          | ✅ / ❌     | GAP         | `dino2_retrieval_*.py`         |
-| EfficientNet  | CNN       | B0, B3            | ✅ / ❌     | GeM / GAP   | `EfficientNet.py`              |
-| ResNet        | CNN       | 34, 50, 101, 152 | ✅ / ❌   | GAP         | `ResNet.py`                    |
-| GoogLeNet     | CNN       | base              | ✅ / ❌     | GeM / GAP   | `GoogleNet_gem_gap.py`         |
+| CLIP          | ViT       | ViT-B/32, B/16, L/14 | Yes / No | Internal    | `Clip.py`, `Clip_test.py`                     |
+| DINOv2        | ViT       | facebook/dinov2-base        | Yes / No     | GAP         | `dino2_retrieval_*.py`         |
+| EfficientNet  | CNN       | B0, B3            | Yes / No     | GeM / GAP   | `EfficientNet.py`              |
+| ResNet        | CNN       | 34, 50, 101, 152 | Yes / No   | GAP         | `ResNet.py`                    |
+| GoogLeNet     | CNN       | base              | Yes / No     | GeM / GAP   | `GoogleNet_gem_gap.py`         |
+
+*“Yes / No” indicates whether both frozen and fine-tuned variants were tested for that model.*
+> **Note**:`Clip_test.py` contains the updated pipeline used in the post-competition phase, including proper layer unfreezing, contrastive loss, and memory optimizations.
+
+
 
 Each script supports standalone execution and produces:
 - Feature extraction
@@ -43,9 +66,8 @@ Each script supports standalone execution and produces:
 
 ## Datasets Used for Testing
 
-In addition to the competition dataset, given on competition day, we used the following public datasets to test and validate our models:
-
-- [Fruit and Vegetable Disease Dataset](https://www.kaggle.com/datasets/muhammad0subhan/fruit-and-vegetable-disease-healthy-vs-rotten)  
+In addition to the competition dataset, given on competition day, we used the following public dataset to test and validate our models:
+ 
 - [Animal Image Dataset (90 Categories)](https://www.kaggle.com/datasets/iamsouravbanerjee/animal-image-dataset-90-different-animals)
 
 ---
@@ -99,15 +121,33 @@ In addition to the competition dataset, given on competition day, we used the fo
 
 ## Metrics and Evaluation
 
-### Top-k Accuracy
+### Competition Evaluation: Weighted Top-k Accuracy
 
-Top-k Accuracy measures how often the correct class for a query image appears among the top-k retrieved gallery images.
+The official metric used by the competition server assigns a weighted score based on the presence and rank of the correct identity among the retrieved results:
 
-```
-Top-k Accuracy = (Number of queries with at least one correct match in top-k) / (Total number of queries)
-```
+- **600 points** if the correct match is ranked first (Top-1)
+- **300 points** if it appears in positions 2–5 (Top-5)
+- **100 points** if it appears in positions 6–10 (Top-10)
 
-Only the presence of a matching class is considered, not its exact position. In our implementation, we extract class labels from filenames and compare each query image’s class to those of its retrieved counterparts to compute Top-k Accuracy.
+The final score is the mean across all queries.
+
+**Best result:**  
+791.82 weighted Top-k accuracy  
+Model: CLIP ViT-L/14, fully fine-tuned with contrastive + cross-entropy loss (post-competition)
+
+---
+
+### Pre-Competition Metric: Precision@K
+
+For pre-competition testing on the Animals dataset, we used Precision@K, defined as:
+
+Precision@K = (Number of correct matches in top-K) / K
+
+This value was computed per query and averaged over all queries.
+
+**Best result:**  
+0.8513 Precision@K  
+Model: EfficientNet-B3, fine-tuned with GAP pooling
 
 ---
 

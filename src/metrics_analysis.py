@@ -10,7 +10,7 @@ RESULTS_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "..", "results_animals")
 # Dictionary to group result metrics by experiment configuration
 groups = defaultdict(list)
 
-print("\n🔍 Scanning results in:", RESULTS_DIR)
+print("\n Scanning results in:", RESULTS_DIR)
 
 # Load all JSON metrics safely
 for root, _, files in os.walk(RESULTS_DIR):
@@ -46,7 +46,7 @@ for root, _, files in os.walk(RESULTS_DIR):
             groups[key].append(metrics)
 
 # Aggregate and print results
-print("\n📊 Aggregated Metrics per Model Configuration:\n")
+print("\n Aggregated Metrics per Model Configuration:\n")
 for key, runs in sorted(groups.items(), key=lambda x: (x[0][0], x[0][1])):
     model_name, batch_size, is_finetuned, num_classes, num_epochs, pooling_type = key
     accs = [r["top_k_accuracy"] for r in runs]
