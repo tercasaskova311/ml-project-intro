@@ -209,3 +209,14 @@ Make sure that your test set is correctly located under `data/test/query/` and `
 ## Course Context
 
 This project was developed as part of the **Introduction to Machine Learning** course in the Master degree in **Data Science** at the **University of Trento** (Academic Year 2024–2025).
+
+---
+
+## Authors
+
+This project was developed by:
+
+- Silvia Bortoluzzi  
+- Diego Conti  
+- Sara Lammouchi  
+- Tereza Sásková
