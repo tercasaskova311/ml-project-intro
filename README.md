@@ -1,5 +1,5 @@
 
-# Top-k Image Retrieval with Pretrained Vision Models
+# From CNNs to Transformers: Top-k Image Retrieval in a Competition Setting
 
 This repository contains our solution to the **Image Retrieval Competition** held in the **Intro to Machine Learning** course at the University of Trento. The objective was to develop a pipeline that retrieves the **Top-k most similar images** for each query image.
 
